@@ -1,0 +1,124 @@
+/**
+ * Cooklang Grammar for Ohm
+ * Based on the official Cooklang specification at https://cooklang.org/docs/spec/
+ */
+
+Cooklang {
+  // Main recipe structure
+  Recipe
+    = Metadata? Section* Step* Note* BlockComment*
+
+  // YAML front matter metadata
+  Metadata
+    = "---" YamlContent "---"
+
+  YamlContent
+    = (~"---" any)*
+
+  // Named section ==Name==
+  Section
+    = "==" SectionName "=="
+
+  SectionName
+    = (~"==" any)+
+
+  // Recipe step - paragraphs separated by blank lines
+  Step
+    = StepLine+
+
+  StepLine
+    = StepItem+ "\n"?
+
+  // Items that can appear in a step
+  StepItem
+    = Ingredient | Cookware | Timer | Text
+
+  // Text without special Cooklang syntax
+  Text
+    = (~special any)+
+
+  special
+    = "@" | "#" | "~" | "--" | "[-" | "==" | ">" | "\n" | "\r"
+
+  // Ingredient: @name{quantity%unit} or @multi word name{}
+  Ingredient
+    = "@" FixedIndicator? IngredientName IngredientAmount?
+
+  IngredientName
+    = (word | punctuation+)            // Single word ingredient
+    | MultiWordComponent               // Multi-word ingredient
+
+  MultiWordComponent
+    = word (~"{" any)* "{}"
+
+  IngredientAmount
+    = "{" AmountQuantity? AmountUnit? AmountPreparation? "}"
+
+  FixedIndicator
+    = "="
+
+  // Cookware: #name or #multi word{}
+  Cookware
+    = "#" CookwareName
+
+  CookwareName
+    = (word | punctuation+)            // Single word cookware
+    | MultiWordComponent               // Multi-word cookware
+
+  // Timer: ~{quantity%unit} or ~name{quantity%unit}
+  Timer
+    = "~" TimerName? "{" TimerQuantity TimerUnit? "}"
+
+  TimerName
+    = word+
+
+  TimerQuantity
+    = (~"%" ~"}" any)+
+
+  TimerUnit
+    = "%" (~"}" any)+
+
+  // Note lines (start with >)
+  Note
+    = ">" (~Newline any)+ Newline?
+
+  // Inline comment: -- comment
+  InlineComment
+    = "--" (~Newline any)*
+
+  // Block comment: [- comment -]
+  BlockComment
+    = "[-" (~"-]" any)+ "-]"
+
+  // Amount parsing for ingredients
+  AmountQuantity
+    = (~"%" ~"}" spaceOrText+)
+
+  AmountUnit
+    = "%" (~"{" ~"}" spaceOrText+)
+
+  AmountPreparation
+    = (~"}" spaceOrText*)
+
+  // Basic tokens
+  word
+    = wordChar+
+
+  wordChar
+    = letter | digit
+
+  punctuation
+    = ~"{}%@#~\n\r\t " any
+
+  spaceOrText
+    = ~"}" any
+
+  newline
+    = "\n" | "\r\n" | "\r"
+
+  Newline
+    = newline
+
+  blankLine
+    = space* newline
+}

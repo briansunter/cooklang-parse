@@ -1,0 +1,15 @@
+{
+  "enabledPlugins": {
+    "feature-dev@claude-code-plugins": true,
+    "frontend-design@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "cooking@personal-plugins": true,
+    "package-managers@personal-plugins": true,
+    "tanstack@personal-plugins": true,
+    "typescript@personal-plugins": true,
+    "frontend-design@claude-code-plugins": true,
+    "software-engineer@personal-plugins": true,
+    "testing@personal-plugins": true
+  }
+}
