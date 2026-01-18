@@ -1,0 +1,148 @@
+/**
+ * Cooklang Grammar for Ohm - Canonical Format
+ * Based on official Cooklang spec at https://cooklang.org/docs/spec/
+ */
+
+Cooklang {
+  recipe
+    = recipeWithMetadata
+    | recipeWithoutMetadata
+
+  recipeWithMetadata
+    = startMetadata restOfRecipe
+
+  recipeWithoutMetadata
+    = restOfRecipe
+
+  restOfRecipe
+    = nonCommentLines
+
+  startMetadata
+    = "---" metadataContent "---" ("\n" | "\r\n" | "\r")*
+
+  metadataContent
+    = (~"---" any)*
+
+  nonCommentLines
+    = line* end
+
+  line
+    = blankLine | comment | stepLine
+
+  blankLine
+    = " "* &("\n") "\n" | " "* &("\r\n") "\r\n" | " "* &("\r") "\r"
+
+  comment
+    = "--" " " (~("\n" | "\r\n" | "\r") any)* ("\n" | "\r\n" | "\r")
+
+  stepLine
+    = content ("\n" | "\r\n" | "\r")
+
+  content
+    = item*
+
+  item
+    = cookware | timer | ingredient | comment_inline | text
+
+  text
+    = (~("\n" | "\r\n" | "\r" | "@" &wordChar | "#" &wordChar | "~" &wordChar | "~" &"{") any)+
+
+  comment_inline
+    = " "* "--" (~("\n" | "\r\n" | "\r") any)*
+
+  // ========== INGREDIENTS ==========
+  ingredient
+    = "@" ingredientNameMultiWord ingredientAmount
+    | "@" ingredientNameSingleWord ingredientAmount?
+
+  ingredientNameSingleWord
+    = wordChar+
+
+  ingredientNameMultiWord
+    = wordChar+ (spaceChar+ wordChar+)+
+
+  ingredientAmount
+    = "{" (~"}" any)* "}"
+
+  // ========== COOKWARE ==========
+  cookware
+    = "#" cookwareNameMultiWord cookwareAmount
+    | "#" cookwareNameSingleWord cookwareAmount?
+
+  cookwareNameSingleWord
+    = wordChar+
+
+  cookwareNameMultiWord
+    = wordChar+ (spaceChar+ wordChar+)+
+
+  cookwareAmount
+    = "{" (~"}" any)* "}"
+
+  // ========== TIMERS ==========
+  timer
+    = "~" &wordChar timerWithNameMultiWord
+    | "~" &wordChar timerWithNameSingleWord
+    | "~" &"{" unnamedTimer
+
+  timerWithNameMultiWord
+    = timerNameMultiWord timerAmount
+
+  timerWithNameSingleWord
+    = timerNameSingleWord timerAmount?
+
+  timerNameSingleWord
+    = wordChar+
+
+  timerNameMultiWord
+    = wordChar+ (spaceChar+ wordChar+)+
+
+  timerAmount
+    = "{" (~"}" any)* "}"
+
+  unnamedTimer
+    = timerAmount
+
+
+  // ========== BASIC TOKENS ==========
+  // nl is a rule, but Ohm provides it natively
+
+  spaceChar
+    = " "  // Only regular space, unicode whitespace acts as word boundary
+
+  wordChar
+    = letter | digit | "_" | "-" | emoji | otherWordChar
+
+  emoji
+    = "\u{1F600}".."\u{1F64F}"
+    | "\u{1F300}".."\u{1F5FF}"
+    | "\u{1F680}".."\u{1F6FF}"
+    | "\u{2600}".."\u{26FF}"
+    | "\u{2700}".."\u{27BF}"
+    | "\u{1F900}".."\u{1F9FF}"
+    | "\u{1FA70}".."\u{1FAFF}"
+
+  otherWordChar
+    = "\u00C0".."\u00FF"
+    | "\u0100".."\u017F"
+    | "\u0400".."\u04FF"
+
+  wordBoundary
+    = " " | "\t" | punctuation | "\n" | "\r\n" | "\r" | unicodeSpace
+
+  punctuation
+    = "!" | "," | "." | ";" | ":" | "?" | "'" | "\"" | "..." | "-" | "_" | "(" | ")" | "[" | "]" | "{" | "}"
+    | "/" | "\\" | "|" | "@" | "#" | "$" | "%" | "^" | "&" | "*" | "+" | "=" | "<" | ">" | "~" | "`" | "\u{2E2C}" | unicodePunct
+
+  unicodePunct
+    = "\u{2000}".."\u{206F}"
+    | "\u{2E00}".."\u2E7F"
+
+  unicodeSpace
+    = "\u{2000}".."\u{200A}"
+    | "\u{2028}"
+    | "\u{2029}"
+    | "\u{202F}"
+    | "\u{205F}"
+    | "\u{3000}"
+
+}
