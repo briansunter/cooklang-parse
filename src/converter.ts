@@ -46,6 +46,7 @@ function simplifyStep(step: Step): SimplifiedStep {
     ingredients: step.ingredients.map(simplifyIngredient),
     cookware: step.cookware.map(c => c.name),
     timers: step.timers.map(simplifyTimer),
+    inlineComments: step.inlineComments.map(c => c.text),
   }
 }
 

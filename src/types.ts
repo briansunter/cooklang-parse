@@ -180,4 +180,5 @@ export interface SimplifiedStep {
   ingredients: SimplifiedIngredient[]
   cookware: string[]
   timers: SimplifiedTimer[]
+  inlineComments?: string[]
 }

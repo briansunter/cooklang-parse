@@ -86,7 +86,7 @@ Add @cheese{200%g}.
 });
 
 test('parse timer with name', () => {
-  const source = `Cook for ~{rest}{30%minutes}.`;
+  const source = `Cook for ~rest{30%minutes}.`;
 
   const recipe = parseCooklang(source);
 

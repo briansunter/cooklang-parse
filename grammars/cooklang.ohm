@@ -6,7 +6,11 @@
 Cooklang {
   // Main recipe structure
   Recipe
-    = Metadata? Section* Step* Note* BlockComment*
+    = Metadata? RecipeItem*
+
+  // Recipe items can be interleaved
+  RecipeItem
+    = Section | Step | Note | BlockComment | blankLine
 
   // YAML front matter metadata
   Metadata
@@ -27,7 +31,7 @@ Cooklang {
     = StepLine+
 
   StepLine
-    = StepItem+ "\n"?
+    = StepItem+ InlineComment? "\n"?
 
   // Items that can appear in a step
   StepItem
@@ -38,18 +42,17 @@ Cooklang {
     = (~special any)+
 
   special
-    = "@" | "#" | "~" | "--" | "[-" | "==" | ">" | "\n" | "\r"
+    = "@" | "#" | "~" | "=" | "--" | "[-" | "==" | ">" | "\n" | "\r"
 
   // Ingredient: @name{quantity%unit} or @multi word name{}
+  // Fixed quantity: =@name{quantity%unit}
   Ingredient
-    = "@" FixedIndicator? IngredientName IngredientAmount?
+    = FixedIndicator? "@" IngredientName IngredientAmount?
 
   IngredientName
-    = (word | punctuation+)            // Single word ingredient
-    | MultiWordComponent               // Multi-word ingredient
-
-  MultiWordComponent
-    = word (~"{" any)* "{}"
+    = word (~"{" any)* "{}"        -- multiWord
+    | word                         -- single
+    | punctuation+                 -- singlePunct
 
   IngredientAmount
     = "{" AmountQuantity? AmountUnit? AmountPreparation? "}"
@@ -62,8 +65,9 @@ Cooklang {
     = "#" CookwareName
 
   CookwareName
-    = (word | punctuation+)            // Single word cookware
-    | MultiWordComponent               // Multi-word cookware
+    = word (~"{" any)* "{}"        -- multiWord
+    | word                         -- single
+    | punctuation+                 -- singlePunct
 
   // Timer: ~{quantity%unit} or ~name{quantity%unit}
   Timer
@@ -80,7 +84,10 @@ Cooklang {
 
   // Note lines (start with >)
   Note
-    = ">" (~Newline any)+ Newline?
+    = ">" noteText Newline?
+
+  noteText
+    = (~"\n" ~"\r" ~">" any)+
 
   // Inline comment: -- comment
   InlineComment

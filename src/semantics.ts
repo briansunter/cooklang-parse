@@ -30,6 +30,92 @@ const grammarFile = readFileSync(join(__dirname, "../grammars/cooklang.ohm"), "u
 const grammar = Ohm.grammar(grammarFile)
 
 /**
+ * Parse simple YAML arrays and objects (non-quoted values)
+ * Handles: [item1, item2] and {key: value, key2: value2}
+ */
+function parseSimpleYamlValue(value: string): unknown {
+  value = value.trim()
+
+  // Parse array: [item1, item2, item3]
+  if (value.startsWith("[") && value.endsWith("]")) {
+    const content = value.slice(1, -1).trim()
+    if (!content) {
+      return []
+    }
+    // Split by comma, but be careful with nested structures
+    const items: string[] = []
+    let current = ""
+    let depth = 0
+    for (const char of content) {
+      if (char === "," && depth === 0) {
+        items.push(current.trim())
+        current = ""
+      } else {
+        if (char === "[" || char === "{") {
+          depth++
+        } else if (char === "]" || char === "}") {
+          depth--
+        }
+        current += char
+      }
+    }
+    if (current.trim()) {
+      items.push(current.trim())
+    }
+    return items.map(item => {
+      // Try to convert to appropriate type
+      const trimmed = item.trim()
+      if (trimmed === "true") return true
+      if (trimmed === "false") return false
+      if (trimmed === "null" || trimmed === "") return null
+      if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10)
+      if (/^\d+\.\d+$/.test(trimmed)) return parseFloat(trimmed)
+      return trimmed
+    })
+  }
+
+  // Parse object: {key: value, key2: value2}
+  if (value.startsWith("{") && value.endsWith("}")) {
+    const content = value.slice(1, -1).trim()
+    if (!content) {
+      return {}
+    }
+    const obj: Record<string, unknown> = {}
+    // Split by comma at top level
+    const pairs: string[] = []
+    let current = ""
+    let depth = 0
+    for (const char of content) {
+      if (char === "," && depth === 0) {
+        pairs.push(current.trim())
+        current = ""
+      } else {
+        if (char === "[" || char === "{") {
+          depth++
+        } else if (char === "]" || char === "}") {
+          depth--
+        }
+        current += char
+      }
+    }
+    if (current.trim()) {
+      pairs.push(current.trim())
+    }
+    for (const pair of pairs) {
+      const colonIndex = pair.indexOf(":")
+      if (colonIndex > 0) {
+        const key = pair.slice(0, colonIndex).trim()
+        const val = pair.slice(colonIndex + 1).trim()
+        obj[key] = parseSimpleYamlValue(val)
+      }
+    }
+    return obj
+  }
+
+  return value
+}
+
+/**
  * Get source position - simplified version
  */
 function getPosition(_interval: Ohm.Interval): SourcePosition {
@@ -48,15 +134,36 @@ function createSemantics() {
   const semantics = grammar.createSemantics()
 
   semantics.addOperation("toAST", {
-    Recipe(_metadata, sections, steps, notes, _blockComments) {
+    Recipe(_metadata, items) {
       const metadataNode =
         _metadata.numChildren > 0 ? (_metadata.children[0].toAST() as Metadata) : null
 
-      const sectionsList = sections.children.map((s: unknown) =>
-        (s as { toAST(): Section }).toAST(),
-      )
-      const stepsList = steps.children.map((s: unknown) => (s as { toAST(): Step }).toAST())
-      const notesList = notes.children.map((n: unknown) => (n as { toAST(): Note }).toAST())
+      const sectionsList: Section[] = []
+      const stepsList: Step[] = []
+      const notesList: Note[] = []
+      const blockCommentsList: BlockComment[] = []
+
+      // Iterate through RecipeItems and separate by type
+      for (const item of items.children) {
+        const node = (item as unknown as { toAST(): unknown }).toAST()
+        // Skip null values (blank lines)
+        if (node && typeof node === "object" && "type" in node) {
+          switch ((node as { type: string }).type) {
+            case "section":
+              sectionsList.push(node as Section)
+              break
+            case "step":
+              stepsList.push(node as Step)
+              break
+            case "note":
+              notesList.push(node as Note)
+              break
+            case "blockComment":
+              blockCommentsList.push(node as BlockComment)
+              break
+          }
+        }
+      }
 
       return {
         type: "recipe" as const,
@@ -82,11 +189,13 @@ function createSemantics() {
             const trimmedKey = key.trim()
             const trimmedValue = value.trim()
 
+            // Try to parse as JSON first (handles quoted arrays/objects)
             if (trimmedValue.startsWith("[") || trimmedValue.startsWith("{")) {
               try {
                 data[trimmedKey] = JSON.parse(trimmedValue)
               } catch {
-                data[trimmedKey] = trimmedValue
+                // If JSON.parse fails, try parsing as simple YAML
+                data[trimmedKey] = parseSimpleYamlValue(trimmedValue)
               }
             } else if (trimmedValue === "true") {
               data[trimmedKey] = true
@@ -164,7 +273,7 @@ function createSemantics() {
       } satisfies Step
     },
 
-    StepLine(items, inlineComment) {
+    StepLine(items, inlineComment, _newline) {
       const stepItems = items.children
         .map((c: unknown) => (c as unknown as { toAST?: () => unknown }).toAST?.())
         .filter((c): c is NonNullable<typeof c> => c !== null && c !== undefined)
@@ -207,7 +316,7 @@ function createSemantics() {
       }
     },
 
-    Ingredient(_at, fixed, name, amount) {
+    Ingredient(fixed, _at, name, amount) {
       const isFixed = fixed.numChildren > 0
 
       // Extract name from the name node
@@ -286,7 +395,13 @@ function createSemantics() {
     Timer(_tilde, name, _lbrace, quantity, unit, _rbrace) {
       const nameStr = name.numChildren > 0 ? name.sourceString.trim() : undefined
       const quantityStr = quantity.sourceString.trim()
-      const unitStr = unit.numChildren > 0 ? unit.sourceString.trim() : undefined
+      // Extract unit content without the % prefix - TimerUnit is "%" unitContent
+      let unitStr: string | undefined
+      if (unit.numChildren > 0) {
+        const unitSource = unit.sourceString.trim()
+        // Remove the leading % to get just the unit content
+        unitStr = unitSource.startsWith('%') ? unitSource.slice(1).trim() : unitSource
+      }
 
       return {
         type: "timer" as const,
@@ -297,11 +412,13 @@ function createSemantics() {
       } satisfies Timer
     },
 
-    Note(_gt, text, _newline) {
+    Note(_gt, noteContents, _newline) {
+      // noteContent children are individual characters, we need to concatenate them
+      const text = noteContents.sourceString.trim()
       return {
         type: "note" as const,
         position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
-        text: text.sourceString.trim(),
+        text,
       } satisfies Note
     },
 
@@ -321,6 +438,14 @@ function createSemantics() {
       } satisfies BlockComment
     },
 
+    RecipeItem(self) {
+      return (self as unknown as { toAST(): unknown }).toAST()
+    },
+
+    blankLine(_spaces, _newline) {
+      return null
+    },
+
     _terminal() {
       return null
     },
@@ -331,6 +456,39 @@ function createSemantics() {
 
 // Create the semantics instance
 const semantics = createSemantics()
+
+/**
+ * Validate recipe for common syntax errors
+ */
+function validateRecipe(recipe: Recipe, source: string): ParseError[] {
+  const errors: ParseError[] = []
+
+  // Check for unclosed brackets
+  let depth = 0
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i]
+    if (char === '{') {
+      depth++
+    } else if (char === '}') {
+      depth--
+    }
+  }
+  if (depth > 0) {
+    errors.push({
+      message: `Unclosed bracket: ${depth} opening bracket(s) not closed`,
+      position: { line: 1, column: 1, offset: 0 },
+      severity: "error" as const,
+    })
+  } else if (depth < 0) {
+    errors.push({
+      message: `Unmatched closing bracket: ${Math.abs(depth)} closing bracket(s) without opening`,
+      position: { line: 1, column: 1, offset: 0 },
+      severity: "error" as const,
+    })
+  }
+
+  return errors
+}
 
 /**
  * Parse Cooklang source and return AST
@@ -359,7 +517,13 @@ export function parseToAST(source: string): Recipe {
   }
 
   const cst = semantics(matchResult)
-  return (cst as unknown as { toAST(): Recipe }).toAST()
+  const recipe = (cst as unknown as { toAST(): Recipe }).toAST()
+
+  // Add validation errors
+  const validationErrors = validateRecipe(recipe, source)
+  recipe.errors.push(...validationErrors)
+
+  return recipe
 }
 
 /**

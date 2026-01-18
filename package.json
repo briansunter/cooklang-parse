@@ -1,7 +1,17 @@
 {
   "name": "cooklang-parse",
-  "module": "index.ts",
+  "version": "0.0.1",
+  "description": "A simple, type-safe Cooklang parser using Ohm",
+  "module": "src/index.ts",
   "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "license": "MIT",
   "scripts": {
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
