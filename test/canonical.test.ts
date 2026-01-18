@@ -673,3 +673,63 @@ test('testInvalidSingleWordCookware', () => {
     metadata: {},
   });
 });
+
+// Additional tests to achieve 100% coverage
+
+// Test parseQuantity with space-separated quantity and units (3+ chars)
+test('testIngredientWithSpaceSeparatedQuantity', () => {
+  const source = '@flour{250 grams}\n';
+  const result = parseToCanonical(source);
+  expect(result).toEqual({
+    steps: [[
+      { type: 'ingredient', name: 'flour', quantity: 250, units: 'grams' },
+    ]],
+    metadata: {},
+  });
+});
+
+// Test ingredient with complex units (space-separated, 3+ chars)
+test('testIngredientWithLongUnits', () => {
+  const source = '@water{2 liters}\n';
+  const result = parseToCanonical(source);
+  expect(result).toEqual({
+    steps: [[
+      { type: 'ingredient', name: 'water', quantity: 2, units: 'liters' },
+    ]],
+    metadata: {},
+  });
+});
+
+// Test cookware with numeric quantity (to cover parseCookwareAmount numeric path)
+test('testCookwareWithNumericQuantity', () => {
+  const source = '#pan{2}\n';
+  const result = parseToCanonical(source);
+  expect(result).toEqual({
+    steps: [[
+      { type: 'cookware', name: 'pan', quantity: 2, units: '' },
+    ]],
+    metadata: {},
+  });
+});
+
+// Test metadata with only key (no colon)
+test('testMetadataWithOnlyKey', () => {
+  const source = '---\njustakey\n---\n';
+  const result = parseToCanonical(source);
+  expect(result.metadata).toEqual({});
+});
+
+// Test metadata with empty value after colon (filtered out)
+test('testMetadataWithEmptyValue', () => {
+  const source = '---\ntitle:\n---\n';
+  const result = parseToCanonical(source);
+  expect(result.metadata).toEqual({});
+});
+
+// Test empty line with metadata marker edge case
+test('testEmptyLineAfterMetadata', () => {
+  const source = '---\ntitle: Test\n---\n\n@flour{250%g}\n';
+  const result = parseToCanonical(source);
+  expect(result.metadata).toEqual({ title: 'Test' });
+  expect(result.steps).toHaveLength(1);
+});

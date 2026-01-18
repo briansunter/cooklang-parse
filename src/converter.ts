@@ -3,16 +3,15 @@
  */
 
 import type {
-  Recipe,
-  Ingredient,
-  Cookware,
-  Timer,
-  Step,
   CooklangRecipe,
+  Ingredient,
+  Recipe,
   SimplifiedIngredient,
-  SimplifiedTimer,
   SimplifiedStep,
-} from './types.js';
+  SimplifiedTimer,
+  Step,
+  Timer,
+} from "./types.js"
 
 /**
  * Convert an AST ingredient to a simplified ingredient
@@ -24,7 +23,7 @@ function simplifyIngredient(ingredient: Ingredient): SimplifiedIngredient {
     unit: ingredient.unit,
     preparation: ingredient.preparation,
     fixed: ingredient.fixed,
-  };
+  }
 }
 
 /**
@@ -35,7 +34,7 @@ function simplifyTimer(timer: Timer): SimplifiedTimer {
     name: timer.name,
     quantity: timer.quantity,
     unit: timer.unit,
-  };
+  }
 }
 
 /**
@@ -47,58 +46,58 @@ function simplifyStep(step: Step): SimplifiedStep {
     ingredients: step.ingredients.map(simplifyIngredient),
     cookware: step.cookware.map(c => c.name),
     timers: step.timers.map(simplifyTimer),
-  };
+  }
 }
 
 /**
  * Get unique ingredients from all steps
  */
 function getUniqueIngredients(recipe: Recipe): SimplifiedIngredient[] {
-  const ingredientMap = new Map<string, SimplifiedIngredient>();
+  const ingredientMap = new Map<string, SimplifiedIngredient>()
 
   for (const step of recipe.steps) {
     for (const ingredient of step.ingredients) {
-      const key = `${ingredient.name}|${ingredient.quantity || ''}|${ingredient.unit || ''}`;
+      const key = `${ingredient.name}|${ingredient.quantity || ""}|${ingredient.unit || ""}`
       if (!ingredientMap.has(key)) {
-        ingredientMap.set(key, simplifyIngredient(ingredient));
+        ingredientMap.set(key, simplifyIngredient(ingredient))
       }
     }
   }
 
-  return Array.from(ingredientMap.values());
+  return Array.from(ingredientMap.values())
 }
 
 /**
  * Get unique cookware from all steps
  */
 function getUniqueCookware(recipe: Recipe): string[] {
-  const cookwareSet = new Set<string>();
+  const cookwareSet = new Set<string>()
 
   for (const step of recipe.steps) {
     for (const cookware of step.cookware) {
-      cookwareSet.add(cookware.name);
+      cookwareSet.add(cookware.name)
     }
   }
 
-  return Array.from(cookwareSet);
+  return Array.from(cookwareSet)
 }
 
 /**
  * Get unique timers from all steps
  */
 function getUniqueTimers(recipe: Recipe): SimplifiedTimer[] {
-  const timerMap = new Map<string, SimplifiedTimer>();
+  const timerMap = new Map<string, SimplifiedTimer>()
 
   for (const step of recipe.steps) {
     for (const timer of step.timers) {
-      const key = `${timer.name || ''}|${timer.quantity}|${timer.unit || ''}`;
+      const key = `${timer.name || ""}|${timer.quantity}|${timer.unit || ""}`
       if (!timerMap.has(key)) {
-        timerMap.set(key, simplifyTimer(timer));
+        timerMap.set(key, simplifyTimer(timer))
       }
     }
   }
 
-  return Array.from(timerMap.values());
+  return Array.from(timerMap.values())
 }
 
 /**
@@ -114,5 +113,5 @@ export function convertToSimplified(recipe: Recipe): CooklangRecipe {
     notes: recipe.notes.map(n => n.text),
     sections: recipe.sections.map(s => s.name),
     errors: recipe.errors,
-  };
+  }
 }

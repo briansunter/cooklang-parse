@@ -4,13 +4,13 @@
  * A simple, type-safe Cooklang parser using Ohm
  */
 
-export { parseToAST, getGrammar } from './semantics.js';
-export { convertToSimplified } from './converter.js';
-export type * from './types.js';
+export { convertToSimplified } from "./converter.js"
+export { getGrammar, parseToAST } from "./semantics.js"
+export type * from "./types.js"
 
-import { parseToAST } from './semantics.js';
-import { convertToSimplified } from './converter.js';
-import type { CooklangRecipe } from './types.js';
+import { convertToSimplified } from "./converter.js"
+import { parseToAST } from "./semantics.js"
+import type { CooklangRecipe } from "./types.js"
 
 /**
  * Parse Cooklang source and return simplified model
@@ -40,11 +40,11 @@ import type { CooklangRecipe } from './types.js';
  * ```
  */
 export function parseCooklang(source: string): CooklangRecipe {
-  const ast = parseToAST(source);
-  return convertToSimplified(ast);
+  const ast = parseToAST(source)
+  return convertToSimplified(ast)
 }
 
 export default {
   parseCooklang,
   parseToAST,
-};
+}

@@ -2,10 +2,11 @@
  * Ohm semantics for Cooklang canonical format
  */
 
-import * as Ohm from 'ohm-js';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import * as Ohm from "ohm-js"
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+import { dirname, join } from "node:path"
+import { safeGetSourceString, safeToCanonical } from "./cstTypes.js"
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -178,12 +179,13 @@ function createSemantics() {
 
   semantics.addOperation('toCanonical', {
     recipe(self) {
-      return (self as unknown as { toCanonical(): unknown }).toCanonical();
+      return safeToCanonical(self);
     },
 
     recipeWithMetadata(metadata, _restOfRecipe) {
-      const md = (metadata as unknown as { toCanonical(): Record<string, string> }).toCanonical();
-      const lines = (_restOfRecipe as unknown as { toCanonical(): unknown[] }).toCanonical() as unknown[];
+      const md = safeToCanonical(metadata) as Record<string, string>;
+      const rawLines = safeToCanonical(_restOfRecipe);
+      const lines = Array.isArray(rawLines) ? rawLines : [];
 
       // Process all lines and group into steps
       const steps: unknown[][] = [];
@@ -196,13 +198,11 @@ function createSemantics() {
             steps.push(mergeConsecutiveTextsWithNewlines(currentStep));
             currentStep = [];
           }
-        } else if (lineResult === 'comment') {
-          // Comment - skip
-          continue;
         } else if (Array.isArray(lineResult)) {
           // Add items to current step (will merge at step boundaries)
           currentStep.push(...lineResult);
         }
+        // Comments are handled by not being added to the current step
       }
 
       // Add the last step if it has content
@@ -217,7 +217,8 @@ function createSemantics() {
     },
 
     recipeWithoutMetadata(_restOfRecipe) {
-      const lines = (_restOfRecipe as unknown as { toCanonical(): unknown[] }).toCanonical() as unknown[];
+      const rawLines = safeToCanonical(_restOfRecipe);
+      const lines = Array.isArray(rawLines) ? rawLines : [];
 
       // Process all lines and group into steps
       const steps: unknown[][] = [];
@@ -230,13 +231,11 @@ function createSemantics() {
             steps.push(mergeConsecutiveTextsWithNewlines(currentStep));
             currentStep = [];
           }
-        } else if (lineResult === 'comment') {
-          // Comment - skip
-          continue;
         } else if (Array.isArray(lineResult)) {
           // Add items to current step (will merge at step boundaries)
           currentStep.push(...lineResult);
         }
+        // Comments are handled by not being added to the current step
       }
 
       // Add the last step if it has content
@@ -252,13 +251,13 @@ function createSemantics() {
 
     nonCommentLines(self, _end) {
       // Return array of line results, filtering out nulls from end node
-      return self.children.map((c: unknown) =>
-        (c as unknown as { toCanonical(): unknown }).toCanonical()
-      ).filter((x): x is NonNullable<typeof x> => x !== null && x !== undefined);
+      return self.children
+        .map((c) => safeToCanonical(c))
+        .filter((x): x is NonNullable<typeof x> => x !== null && x !== undefined);
     },
 
     line(self) {
-      return (self as unknown as { toCanonical(): unknown }).toCanonical();
+      return safeToCanonical(self);
     },
 
     blankLine(_spaces, _lookahead, _nl) {
@@ -270,13 +269,14 @@ function createSemantics() {
     },
 
     stepLine(content, _nl) {
-      const result = (content as unknown as { toCanonical(): unknown[] }).toCanonical() as unknown[];
+      const rawResult = safeToCanonical(content);
+      const result = Array.isArray(rawResult) ? rawResult : [];
       // If the content is empty and the source line is just ---, preserve it as text
       if (result.length === 0) {
         // Get the full source line from self (in the semantic action context)
         // We need to check if this is a metadata marker line that should be preserved
         // The parent line node has the source string
-        const lineSource = (this as unknown as { sourceString: string }).sourceString;
+        const lineSource = safeGetSourceString(this);
         const trimmedLine = lineSource.trim();
         if (trimmedLine === '---') {
           return [{ type: 'text', value: '---' }];
@@ -288,19 +288,15 @@ function createSemantics() {
     _iter(...children) {
       // For iteration rules (like `item*`), we want the array of results
       // But Ohm passes us the raw CST nodes, so we need to transform them
-      const results = children.map((c) => {
-        const result = (c as unknown as { toCanonical?: () => unknown }).toCanonical?.();
-        if (result !== null && result !== undefined) {
-          return result;
-        }
-        return null;
-      }).filter((x): x is NonNullable<typeof x> => x !== null && x !== undefined);
+      const results = children
+        .map((c) => safeToCanonical(c))
+        .filter((x): x is NonNullable<typeof x> => x !== null && x !== undefined);
 
       return results;
     },
 
     item(self) {
-      return (self as unknown as { toCanonical(): unknown }).toCanonical();
+      return safeToCanonical(self);
     },
 
     text(self) {
@@ -386,14 +382,14 @@ function createSemantics() {
       };
     },
 
-    timer(_tilde, _lookahead, timerPart) {
-      // timerPart is either timerWithNameMultiWord, timerWithNameSingleWord, or unnamedTimer
-      const result = (timerPart as unknown as { toCanonical(): unknown }).toCanonical();
+    timer(_tilde, timerPart) {
+      // timerPart is either timerWithName or unnamedTimer
+      const result = safeToCanonical(timerPart);
       return result;
     },
 
-    timerWithNameMultiWord(name, amount) {
-      const nameStr = name.numChildren > 0 ? name.sourceString.trim() : '';
+    timerWithName(_lookahead, name, amount) {
+      const nameStr = name.sourceString.trim();
       const amountStr = amount.numChildren > 0 ? amount.sourceString : '';
 
       if (!amountStr) {
@@ -416,31 +412,7 @@ function createSemantics() {
       };
     },
 
-    timerWithNameSingleWord(name, amount) {
-      const nameStr = name.numChildren > 0 ? name.sourceString.trim() : '';
-      const amountStr = amount.numChildren > 0 ? amount.sourceString : '';
-
-      if (!amountStr) {
-        return {
-          type: 'timer',
-          name: nameStr,
-          quantity: '',
-          units: '',
-        };
-      }
-
-      const content = amountStr.slice(1, -1);
-      const parsed = parseAmount(content);
-
-      return {
-        type: 'timer',
-        name: nameStr,
-        quantity: parsed.quantity,
-        units: parsed.units,
-      };
-    },
-
-    unnamedTimer(amount) {
+    unnamedTimer(_lookahead, amount) {
       const amountStr = amount.sourceString;
       const content = amountStr.slice(1, -1);
       const parsed = parseAmount(content);
@@ -492,18 +464,45 @@ const semantics = createSemantics();
 /**
  * Parse Cooklang source to canonical format
  */
-export function parseToCanonical(source: string): { steps: unknown[][]; metadata: Record<string, string> } {
+export function parseToCanonical(source: string): {
+  steps: unknown[][];
+  metadata: Record<string, string>;
+} {
   const matchResult = grammar.match(source);
 
   if (!matchResult.succeeded()) {
-    const mr = matchResult as unknown as { shortMessage?: string; message?: string };
-    throw new Error(`Parse error: ${mr.shortMessage ?? mr.message ?? 'Unknown error'}`);
+    // Extract error information from Ohm's matchResult
+    const errorInfo = matchResult;
+    const msg =
+      (errorInfo as { message?: string }).message ??
+      (errorInfo as { shortMessage?: string }).shortMessage ??
+        "Unknown error";
+    throw new Error(`Parse error: ${msg}`);
   }
 
   const cst = semantics(matchResult);
-  return (cst as unknown as { toCanonical(): unknown }).toCanonical() as {
+  const result = safeToCanonical(cst);
+
+  // Ensure the result has the expected structure
+  type CanonicalResult = {
     steps: unknown[][];
     metadata: Record<string, string>;
+  }
+
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "steps" in result &&
+    "metadata" in result &&
+    Array.isArray(result.steps)
+  ) {
+    return result as CanonicalResult;
+  }
+
+  // Fallback if structure is unexpected
+  return {
+    steps: [],
+    metadata: {},
   };
 }
 

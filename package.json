@@ -2,7 +2,15 @@
   "name": "cooklang-parse",
   "module": "index.ts",
   "type": "module",
+  "scripts": {
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "check": "biome check src/",
+    "test": "bun test"
+  },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.11",
     "@types/bun": "latest"
   },
   "peerDependencies": {

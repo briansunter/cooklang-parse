@@ -52,56 +52,36 @@ Cooklang {
 
   // ========== INGREDIENTS ==========
   ingredient
-    = "@" ingredientNameMultiWord ingredientAmount
-    | "@" ingredientNameSingleWord ingredientAmount?
-
-  ingredientNameSingleWord
-    = wordChar+
-
-  ingredientNameMultiWord
-    = wordChar+ (spaceChar+ wordChar+)+
-
-  ingredientAmount
-    = "{" (~"}" any)* "}"
+    = "@" nameMultiWord amount
+    | "@" nameSingleWord amount?
 
   // ========== COOKWARE ==========
   cookware
-    = "#" cookwareNameMultiWord cookwareAmount
-    | "#" cookwareNameSingleWord cookwareAmount?
-
-  cookwareNameSingleWord
-    = wordChar+
-
-  cookwareNameMultiWord
-    = wordChar+ (spaceChar+ wordChar+)+
-
-  cookwareAmount
-    = "{" (~"}" any)* "}"
+    = "#" nameMultiWord amount
+    | "#" nameSingleWord amount?
 
   // ========== TIMERS ==========
   timer
-    = "~" &wordChar timerWithNameMultiWord
-    | "~" &wordChar timerWithNameSingleWord
-    | "~" &"{" unnamedTimer
+    = "~" timerWithName
+    | "~" unnamedTimer
 
-  timerWithNameMultiWord
-    = timerNameMultiWord timerAmount
-
-  timerWithNameSingleWord
-    = timerNameSingleWord timerAmount?
-
-  timerNameSingleWord
-    = wordChar+
-
-  timerNameMultiWord
-    = wordChar+ (spaceChar+ wordChar+)+
-
-  timerAmount
-    = "{" (~"}" any)* "}"
+  timerWithName
+    = &wordChar nameMultiWord amount
+    | &wordChar nameSingleWord amount?
 
   unnamedTimer
-    = timerAmount
+    = &"{" amount
 
+
+  // ========== GENERIC NAME & AMOUNT RULES ==========
+  nameSingleWord
+    = wordChar+
+
+  nameMultiWord
+    = wordChar+ (spaceChar+ wordChar+)+
+
+  amount
+    = "{" (~"}" any)* "}"
 
   // ========== BASIC TOKENS ==========
   // nl is a rule, but Ohm provides it natively
@@ -125,24 +105,5 @@ Cooklang {
     = "\u00C0".."\u00FF"
     | "\u0100".."\u017F"
     | "\u0400".."\u04FF"
-
-  wordBoundary
-    = " " | "\t" | punctuation | "\n" | "\r\n" | "\r" | unicodeSpace
-
-  punctuation
-    = "!" | "," | "." | ";" | ":" | "?" | "'" | "\"" | "..." | "-" | "_" | "(" | ")" | "[" | "]" | "{" | "}"
-    | "/" | "\\" | "|" | "@" | "#" | "$" | "%" | "^" | "&" | "*" | "+" | "=" | "<" | ">" | "~" | "`" | "\u{2E2C}" | unicodePunct
-
-  unicodePunct
-    = "\u{2000}".."\u{206F}"
-    | "\u{2E00}".."\u2E7F"
-
-  unicodeSpace
-    = "\u{2000}".."\u{200A}"
-    | "\u{2028}"
-    | "\u{2029}"
-    | "\u{202F}"
-    | "\u{205F}"
-    | "\u{3000}"
 
 }
