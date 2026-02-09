@@ -243,6 +243,8 @@ interface SemanticResult {
 
 const semantics = grammar.createSemantics()
 
+const sourceOffsets = new WeakMap<object, number>()
+
 semantics.addOperation("toAST", {
   Recipe(_metadata, items) {
     const frontmatter: string | null = _metadata.numChildren > 0 ? _metadata.child(0).toAST() : null
@@ -273,19 +275,27 @@ semantics.addOperation("toAST", {
   },
 
   Text(self) {
-    return { type: "text", value: self.sourceString, _sourceOffset: this.source.startIdx }
+    const item = { type: "text" as const, value: self.sourceString }
+    sourceOffsets.set(item, this.source.startIdx)
+    return item
   },
 
   Ingredient(_child) {
-    return { ...convertIngredient(this.sourceString), _sourceOffset: this.source.startIdx }
+    const item = convertIngredient(this.sourceString)
+    sourceOffsets.set(item, this.source.startIdx)
+    return item
   },
 
   Cookware(_child) {
-    return { ...convertCookware(this.sourceString), _sourceOffset: this.source.startIdx }
+    const item = convertCookware(this.sourceString)
+    sourceOffsets.set(item, this.source.startIdx)
+    return item
   },
 
   Timer(_child) {
-    return { ...convertTimer(this.sourceString), _sourceOffset: this.source.startIdx }
+    const item = convertTimer(this.sourceString)
+    sourceOffsets.set(item, this.source.startIdx)
+    return item
   },
 
   Note(_gt, noteContents, _newline) {
@@ -325,19 +335,20 @@ function detectUnclosedBraces(
   const warnings: ParseError[] = []
   for (const step of steps) {
     for (let i = 0; i < step.length; i++) {
-      const item = step[i] as RecipeStepItem & { _sourceOffset?: number }
+      const item = step[i]
       if (!item || item.type !== "text") continue
-      const prev = i > 0 ? (step[i - 1] as RecipeStepItem & { _sourceOffset?: number }) : undefined
+      const prev = i > 0 ? step[i - 1] : undefined
       if (prev && prev.type !== "text" && item.value.includes("{")) {
-        const off = mapOffset(item._sourceOffset ?? 0, oMap)
+        const off = mapOffset(sourceOffsets.get(item) ?? 0, oMap)
+        const name = "name" in prev ? prev.name : ""
         warnings.push({
-          message: `Possible unclosed brace after ${prev.type} "${(prev as { name: string }).name}"`,
+          message: `Possible unclosed brace after ${prev.type} "${name}"`,
           position: offsetToPosition(off, source),
           severity: "warning",
         })
       }
       if (/[@#~]\w*\{[^}]*$/.test(item.value)) {
-        const off = mapOffset(item._sourceOffset ?? 0, oMap)
+        const off = mapOffset(sourceOffsets.get(item) ?? 0, oMap)
         warnings.push({
           message: "Possible unclosed brace in text",
           position: offsetToPosition(off, source),
@@ -393,13 +404,6 @@ export function parseCooklang(source: string): CooklangRecipe {
   }
 
   warnings.push(...detectUnclosedBraces(result.steps, source, directives.offsetMap))
-
-  // Strip internal _sourceOffset from step items
-  for (const step of result.steps) {
-    for (const item of step) {
-      delete (item as Record<string, unknown>)._sourceOffset
-    }
-  }
 
   const metadata = { ...yaml?.data, ...directives.metadata }
   const keyFn = (i: { name: string; quantity: string | number; units: string }) =>
