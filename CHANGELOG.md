@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/briansunter/cooklang-parse/compare/v1.1.0...v1.1.1) (2026-02-09)
+
+
+### Bug Fixes
+
+* format semantics.ts to pass biome lint ([1c03d84](https://github.com/briansunter/cooklang-parse/commit/1c03d8434edc9a9cce3b41bb815dbcddcd6f93c2))
+* switch npm badge to shields.io and add branch param to CI badge ([66be7ce](https://github.com/briansunter/cooklang-parse/commit/66be7ce519f1724073f1bc5bd485463600833129))
+
 ## [1.1.0](https://github.com/briansunter/cooklang-parse/compare/v1.0.0...v1.1.0) (2026-02-09)
 
 
