@@ -10,7 +10,7 @@ Cooklang {
 
   // Recipe items can be interleaved
   RecipeItem
-    = Section | Step | Note | BlockComment | blankLine
+    = Section | Note | BlockComment | CommentLine | blankLine | spaceOnly | Step
 
   // YAML front matter metadata
   Metadata
@@ -21,17 +21,18 @@ Cooklang {
 
   // Named section ==Name==
   Section
-    = "==" SectionName "=="
+    = "==" sectionName "=="      -- double
+    | "=" sectionName            -- single
 
-  SectionName
-    = (~"==" any)+
+  sectionName
+    = (~"==" ~newline any)+
 
   // Recipe step - paragraphs separated by blank lines
   Step
     = StepLine+
 
   StepLine
-    = StepItem+ InlineComment? "\n"?
+    = ~(hspace* "-- ") ~(hspace* newline) StepItem+ InlineComment? "\n"?
 
   // Items that can appear in a step
   StepItem
@@ -42,44 +43,61 @@ Cooklang {
     = (~special any)+
 
   special
-    = "@" | "#" | "~" | "=" | "--" | "[-" | "==" | ">" | "\n" | "\r"
+    = "@" | "#" | "~" | "=" | "-- " | "[-" | "==" | ">" | "\n" | "\r"
 
   // Ingredient: @name{quantity%unit} or @multi word name{}
   // Fixed quantity: =@name{quantity%unit}
   Ingredient
-    = FixedIndicator? "@" IngredientName IngredientAmount?
+    = FixedIndicator? "@" ingredientModifiers ingredientWord (hspace+ ingredientWord)+ ingredientAmount ingredientPreparation?  -- multi
+    | FixedIndicator? "@" ingredientModifiers ingredientWord ingredientAmount? ingredientPreparation?                           -- single
 
-  IngredientName
-    = word (~"{" any)* "{}"        -- multiWord
-    | word                         -- single
-    | punctuation+                 -- singlePunct
+  ingredientPreparation
+    = "(" (~")" ~newline any)* ")"
 
-  IngredientAmount
-    = "{" AmountQuantity? AmountUnit? AmountPreparation? "}"
+  ingredientModifiers
+    = ("@" | "&" | "?" | "+" | "-")*
+
+  ingredientWord
+    = ingredientWordChar+
+
+  ingredientWordChar
+    = ~"{" ~"}" ~"@" ~"#" ~"~" ~"=" ~hspace ~newline ~"," ~"." ~";" ~":" ~"!" ~"?" any
+
+  ingredientAmount
+    = "{" (~"}" any)* "}"
 
   FixedIndicator
     = "="
 
   // Cookware: #name or #multi word{}
   Cookware
-    = "#" CookwareName
+    = "#" cookwareModifiers cookwareWord (hspace+ cookwareWord)+ cookwareAmount   -- multi
+    | "#" cookwareModifiers cookwareWord cookwareAmount?                         -- single
 
-  CookwareName
-    = word (~"{" any)* "{}"        -- multiWord
-    | word                         -- single
-    | punctuation+                 -- singlePunct
+  cookwareModifiers
+    = ("&" | "?" | "+" | "-")*
+
+  cookwareWord
+    = cookwareWordChar+
+
+  cookwareWordChar
+    = ~"{" ~"}" ~"@" ~"#" ~"~" ~"=" ~hspace ~newline ~"," ~"." ~";" ~":" ~"!" ~"?" any
+
+  cookwareAmount
+    = "{" (~"}" any)* "}"
 
   // Timer: ~{quantity%unit} or ~name{quantity%unit}
   Timer
-    = "~" TimerName? "{" TimerQuantity TimerUnit? "}"
+    = "~" timerName? "{" timerQuantity timerUnit? "}"   -- withAmount
+    | "~" timerName                                     -- word
 
-  TimerName
+  timerName
     = word+
 
-  TimerQuantity
+  timerQuantity
     = (~"%" ~"}" any)+
 
-  TimerUnit
+  timerUnit
     = "%" (~"}" any)+
 
   // Note lines (start with >)
@@ -91,21 +109,15 @@ Cooklang {
 
   // Inline comment: -- comment
   InlineComment
-    = "--" (~Newline any)*
+    = "-- " (~Newline any)*
+
+  // Full-line comments
+  CommentLine
+    = hspace* InlineComment Newline?
 
   // Block comment: [- comment -]
   BlockComment
     = "[-" (~"-]" any)+ "-]"
-
-  // Amount parsing for ingredients
-  AmountQuantity
-    = (~"%" ~"}" spaceOrText+)
-
-  AmountUnit
-    = "%" (~"{" ~"}" spaceOrText+)
-
-  AmountPreparation
-    = (~"}" spaceOrText*)
 
   // Basic tokens
   word
@@ -117,9 +129,6 @@ Cooklang {
   punctuation
     = ~"{}%@#~\n\r\t " any
 
-  spaceOrText
-    = ~"}" any
-
   newline
     = "\n" | "\r\n" | "\r"
 
@@ -127,5 +136,14 @@ Cooklang {
     = newline
 
   blankLine
-    = space* newline
+    = hspace* newline
+
+  spaceOnly
+    = hspace+ &end
+
+  hspace
+    = " " | "\t"
+
+  // Keep Ohm's implicit skipping from crossing lines.
+  space := "\t"
 }

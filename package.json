@@ -27,6 +27,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "ohm-js": "^17.3.0"
+    "ohm-js": "^17.3.0",
+    "yaml": "^2.8.2"
   }
 }

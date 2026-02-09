@@ -8,8 +8,8 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import * as Ohm from "ohm-js"
+import YAML from "yaml"
 import type {
-  BlockComment,
   Comment,
   Cookware,
   Ingredient,
@@ -33,75 +33,46 @@ const grammar = Ohm.grammar(grammarFile)
  * Parse simple YAML arrays and objects (non-quoted values)
  * Handles: [item1, item2] and {key: value, key2: value2}
  */
-function parseSimpleYamlValue(value: string): unknown {
-  value = value.trim()
+function parseSimpleYamlValue(input: string): unknown {
+  const value = input.trim()
 
-  // Parse array: [item1, item2, item3]
-  if (value.startsWith("[") && value.endsWith("]")) {
+  // Parse array: [item1, item2, item3] or object: {key: value}
+  if (
+    (value.startsWith("[") && value.endsWith("]")) ||
+    (value.startsWith("{") && value.endsWith("}"))
+  ) {
+    const isArray = value.startsWith("[")
     const content = value.slice(1, -1).trim()
+
     if (!content) {
-      return []
+      return isArray ? [] : {}
     }
-    // Split by comma, but be careful with nested structures
-    const items: string[] = []
+
+    // Split by comma at top level (respecting nested brackets)
+    const parts: string[] = []
     let current = ""
     let depth = 0
     for (const char of content) {
       if (char === "," && depth === 0) {
-        items.push(current.trim())
+        parts.push(current.trim())
         current = ""
       } else {
-        if (char === "[" || char === "{") {
-          depth++
-        } else if (char === "]" || char === "}") {
-          depth--
-        }
+        if (char === "[" || char === "{") depth++
+        if (char === "]" || char === "}") depth--
         current += char
       }
     }
     if (current.trim()) {
-      items.push(current.trim())
+      parts.push(current.trim())
     }
-    return items.map(item => {
-      // Try to convert to appropriate type
-      const trimmed = item.trim()
-      if (trimmed === "true") return true
-      if (trimmed === "false") return false
-      if (trimmed === "null" || trimmed === "") return null
-      if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10)
-      if (/^\d+\.\d+$/.test(trimmed)) return parseFloat(trimmed)
-      return trimmed
-    })
-  }
 
-  // Parse object: {key: value, key2: value2}
-  if (value.startsWith("{") && value.endsWith("}")) {
-    const content = value.slice(1, -1).trim()
-    if (!content) {
-      return {}
+    if (isArray) {
+      return parts.map(item => parseScalar(item.trim()))
     }
+
+    // Parse object
     const obj: Record<string, unknown> = {}
-    // Split by comma at top level
-    const pairs: string[] = []
-    let current = ""
-    let depth = 0
-    for (const char of content) {
-      if (char === "," && depth === 0) {
-        pairs.push(current.trim())
-        current = ""
-      } else {
-        if (char === "[" || char === "{") {
-          depth++
-        } else if (char === "]" || char === "}") {
-          depth--
-        }
-        current += char
-      }
-    }
-    if (current.trim()) {
-      pairs.push(current.trim())
-    }
-    for (const pair of pairs) {
+    for (const pair of parts) {
       const colonIndex = pair.indexOf(":")
       if (colonIndex > 0) {
         const key = pair.slice(0, colonIndex).trim()
@@ -112,20 +83,311 @@ function parseSimpleYamlValue(value: string): unknown {
     return obj
   }
 
-  return value
+  return parseScalar(value)
 }
 
 /**
- * Get source position - simplified version
+ * Parse a scalar value to appropriate type
  */
-function getPosition(_interval: Ohm.Interval): SourcePosition {
-  // TODO: Implement proper line/column tracking
-  return {
-    line: 1,
-    column: 1,
-    offset: 0,
+function parseScalar(value: string): unknown {
+  if (value === "true") return true
+  if (value === "false") return false
+  if (value === "null" || value === "") return null
+  if (/^\d+$/.test(value)) return parseInt(value, 10)
+  if (/^\d+\.\d+$/.test(value)) return parseFloat(value)
+  return value
+}
+
+function parseMetadataValue(value: string): unknown {
+  const trimmedValue = value.trim()
+
+  if (trimmedValue.startsWith("[") || trimmedValue.startsWith("{")) {
+    try {
+      return JSON.parse(trimmedValue)
+    } catch {
+      return parseSimpleYamlValue(trimmedValue)
+    }
+  }
+
+  return parseScalar(trimmedValue)
+}
+
+function parseYamlFrontmatter(content: string): {
+  data: Record<string, unknown>
+  warning?: string
+} {
+  try {
+    const doc = YAML.parseDocument(content)
+
+    if (doc.errors.length > 0) {
+      return {
+        data: {},
+        warning: `Invalid YAML frontmatter: ${doc.errors[0]?.message ?? "parse error"}`,
+      }
+    }
+
+    const parsed = doc.toJS()
+    if (parsed === null || parsed === undefined) {
+      return { data: {} }
+    }
+
+    if (typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        data: {},
+        warning: "Invalid YAML frontmatter: expected a key/value mapping",
+      }
+    }
+
+    return { data: parsed as Record<string, unknown> }
+  } catch (error) {
+    return {
+      data: {},
+      warning: `Invalid YAML frontmatter: ${
+        error instanceof Error ? error.message : "parse error"
+      }`,
+    }
   }
 }
+
+function extractMetadataDirectives(source: string): {
+  metadata: Record<string, unknown>
+  strippedSource: string
+  content: string
+} {
+  type ParseMode = "default" | "components" | "steps" | "text"
+
+  const normalizeMode = (value: string): ParseMode => {
+    const lower = value.trim().toLowerCase()
+    if (lower === "components" || lower === "ingredients") return "components"
+    if (lower === "steps") return "steps"
+    if (lower === "text") return "text"
+    return "default"
+  }
+
+  const lines = source.split(/\r\n|\n|\r/)
+  const metadata: Record<string, unknown> = {}
+  const stripped: string[] = []
+  const content: string[] = []
+  let mode: ParseMode = "default"
+
+  for (const line of lines) {
+    const match = line.match(/^\s*>>\s*([^:]+?)\s*:\s*(.*)\s*$/)
+    if (!match) {
+      if (mode === "components") {
+        stripped.push("")
+        continue
+      }
+      stripped.push(line)
+      continue
+    }
+
+    const key = match[1]?.trim()
+    const value = match[2]
+    if (!key || value === undefined) {
+      stripped.push(line)
+      continue
+    }
+
+    metadata[key] = parseMetadataValue(value)
+    content.push(line)
+    stripped.push("")
+
+    const lowerKey = key.toLowerCase()
+    if (lowerKey === "[mode]" || lowerKey === "[define]") {
+      mode = normalizeMode(value)
+    }
+  }
+
+  return {
+    metadata,
+    strippedSource: stripped.join("\n"),
+    content: content.join("\n"),
+  }
+}
+
+function isLikelyNumericQuantity(value: string): boolean {
+  return /^-?\d+(?:\.\d+)?(?:\/\d+)?(?:-\d+(?:\.\d+)?(?:\/\d+)?)?$/.test(value.trim())
+}
+
+function parseTokenAmount(content: string): {
+  quantity?: string
+  unit?: string
+  preparation?: string
+} {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return {}
+  }
+
+  const percentIdx = trimmed.indexOf("%")
+  if (percentIdx !== -1) {
+    const quantity = trimmed.slice(0, percentIdx).trim()
+    const right = trimmed.slice(percentIdx + 1).trim()
+    const rightParts = right.length > 0 ? right.split(/\s+/) : []
+    return {
+      quantity: quantity.length > 0 ? quantity : undefined,
+      unit: rightParts[0],
+      preparation: rightParts.length > 1 ? rightParts.slice(1).join(" ") : undefined,
+    }
+  }
+
+  const parts = trimmed.split(/\s+/)
+  if (parts.length === 1) {
+    return { quantity: parts[0] }
+  }
+
+  const first = parts[0]
+  if (first && isLikelyNumericQuantity(first)) {
+    return {
+      quantity: first,
+      unit: parts[1],
+      preparation: parts.length > 2 ? parts.slice(2).join(" ") : undefined,
+    }
+  }
+
+  return { quantity: trimmed }
+}
+
+function splitNameAndAmount(raw: string): {
+  namePart: string
+  amountContent?: string
+} {
+  const trimmed = raw.trim()
+  if (!trimmed.endsWith("}")) {
+    return { namePart: trimmed }
+  }
+
+  const amountStart = trimmed.lastIndexOf("{")
+  if (amountStart === -1) {
+    return { namePart: trimmed }
+  }
+
+  return {
+    namePart: trimmed.slice(0, amountStart).trim(),
+    amountContent: trimmed.slice(amountStart + 1, -1),
+  }
+}
+
+function normalizeComponentName(namePart: string): string {
+  let name = namePart.trim()
+
+  if (name.endsWith("{}")) {
+    name = name.slice(0, -2).trim()
+  }
+
+  const aliasIdx = name.indexOf("|")
+  if (aliasIdx !== -1) {
+    name = name.slice(0, aliasIdx).trim()
+  }
+
+  if (name.startsWith("(")) {
+    const close = name.indexOf(")")
+    if (close !== -1) {
+      name = name.slice(close + 1).trim()
+    }
+  }
+
+  while (name.startsWith("&")) {
+    name = name.slice(1).trim()
+  }
+
+  return name
+}
+
+function parseIngredientToken(token: string): {
+  name: string
+  quantity?: string
+  unit?: string
+  preparation?: string
+  fixed: boolean
+} {
+  let raw = token.trim()
+  let fixed = false
+
+  if (raw.startsWith("=")) {
+    fixed = true
+    raw = raw.slice(1).trimStart()
+  }
+
+  if (raw.startsWith("@")) {
+    raw = raw.slice(1)
+  }
+
+  raw = raw.replace(/^[@&?+-]+/, "")
+
+  // Extract trailing (preparation) suffix
+  let preparation: string | undefined
+  const prepMatch = raw.match(/\(([^)]*)\)$/)
+  if (prepMatch) {
+    preparation = prepMatch[1] || undefined
+    raw = raw.slice(0, prepMatch.index).trimEnd()
+  }
+
+  const { namePart, amountContent } = splitNameAndAmount(raw)
+  const name = normalizeComponentName(namePart)
+
+  // Check for fixed quantity marker inside braces: {=qty%unit}
+  let fixedContent = amountContent
+  if (fixedContent?.trimStart().startsWith("=")) {
+    fixed = true
+    fixedContent = fixedContent.trimStart().slice(1)
+  }
+
+  const amount = fixedContent !== undefined ? parseTokenAmount(fixedContent) : {}
+
+  // Merge preparation: explicit (prep) suffix takes precedence over amount-parsed preparation
+  const finalPreparation = preparation ?? amount.preparation
+
+  return {
+    name,
+    fixed,
+    quantity: amount.quantity,
+    unit: amount.unit,
+    preparation: finalPreparation,
+  }
+}
+
+function parseCookwareToken(token: string): { name: string } {
+  let raw = token.trim()
+  if (raw.startsWith("#")) {
+    raw = raw.slice(1)
+  }
+
+  raw = raw.replace(/^[&?+-]+/, "")
+  const { namePart } = splitNameAndAmount(raw)
+  return { name: normalizeComponentName(namePart) }
+}
+
+function parseTimerToken(token: string): {
+  name?: string
+  quantity: string
+  unit?: string
+} {
+  const trimmed = token.trim()
+  const withoutPrefix = trimmed.startsWith("~") ? trimmed.slice(1) : trimmed
+  const { namePart, amountContent } = splitNameAndAmount(withoutPrefix)
+
+  const parsedName = namePart.trim()
+  if (amountContent === undefined) {
+    return {
+      name: parsedName.length > 0 ? parsedName : undefined,
+      quantity: "",
+      unit: undefined,
+    }
+  }
+
+  const amount = parseTokenAmount(amountContent)
+  return {
+    name: parsedName.length > 0 ? parsedName : undefined,
+    quantity: amount.quantity ?? "",
+    unit: amount.unit,
+  }
+}
+
+/**
+ * Stub position - proper line/column tracking not yet implemented
+ */
+const stubPosition: SourcePosition = { line: 1, column: 1, offset: 0 }
 
 /**
  * Create semantic actions for AST building
@@ -135,18 +397,15 @@ function createSemantics() {
 
   semantics.addOperation("toAST", {
     Recipe(_metadata, items) {
-      const metadataNode =
-        _metadata.numChildren > 0 ? (_metadata.children[0].toAST() as Metadata) : null
+      const firstChild = _metadata.numChildren > 0 ? _metadata.children[0] : null
+      const metadataNode = firstChild ? (firstChild.toAST() as Metadata) : null
 
       const sectionsList: Section[] = []
       const stepsList: Step[] = []
       const notesList: Note[] = []
-      const blockCommentsList: BlockComment[] = []
 
-      // Iterate through RecipeItems and separate by type
       for (const item of items.children) {
         const node = (item as unknown as { toAST(): unknown }).toAST()
-        // Skip null values (blank lines)
         if (node && typeof node === "object" && "type" in node) {
           switch ((node as { type: string }).type) {
             case "section":
@@ -158,16 +417,13 @@ function createSemantics() {
             case "note":
               notesList.push(node as Note)
               break
-            case "blockComment":
-              blockCommentsList.push(node as BlockComment)
-              break
           }
         }
       }
 
       return {
         type: "recipe" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
+        position: stubPosition,
         metadata: metadataNode,
         sections: sectionsList,
         steps: stepsList,
@@ -178,57 +434,29 @@ function createSemantics() {
 
     Metadata(_dash1, yaml, _dash2) {
       const content = yaml.sourceString
-      const data: Record<string, unknown> = {}
-
-      try {
-        const lines = content.trim().split("\n")
-        for (const line of lines) {
-          const match = line.match(/^([^:]+):\s*(.*)$/)
-          if (match) {
-            const [, key, value] = match
-            const trimmedKey = key.trim()
-            const trimmedValue = value.trim()
-
-            // Try to parse as JSON first (handles quoted arrays/objects)
-            if (trimmedValue.startsWith("[") || trimmedValue.startsWith("{")) {
-              try {
-                data[trimmedKey] = JSON.parse(trimmedValue)
-              } catch {
-                // If JSON.parse fails, try parsing as simple YAML
-                data[trimmedKey] = parseSimpleYamlValue(trimmedValue)
-              }
-            } else if (trimmedValue === "true") {
-              data[trimmedKey] = true
-            } else if (trimmedValue === "false") {
-              data[trimmedKey] = false
-            } else if (trimmedValue === "" || trimmedValue === "null") {
-              data[trimmedKey] = null
-            } else if (/^\d+$/.test(trimmedValue)) {
-              data[trimmedKey] = parseInt(trimmedValue, 10)
-            } else if (/^\d+\.\d+$/.test(trimmedValue)) {
-              data[trimmedKey] = parseFloat(trimmedValue)
-            } else {
-              data[trimmedKey] = trimmedValue
-            }
-          }
-        }
-      } catch {
-        // YAML parsing failed
-      }
 
       return {
         type: "metadata" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
+        position: stubPosition,
         content,
-        data,
+        data: {},
       } satisfies Metadata
     },
 
-    Section(_eq1, name, _eq2) {
+    Section_double(_eq1, name, _eq2) {
       const nameStr = name.sourceString.trim()
       return {
         type: "section" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
+        position: stubPosition,
+        name: nameStr,
+      } satisfies Section
+    },
+
+    Section_single(_eq, name) {
+      const nameStr = name.sourceString.trim()
+      return {
+        type: "section" as const,
+        position: stubPosition,
         name: nameStr,
       } satisfies Section
     },
@@ -264,7 +492,7 @@ function createSemantics() {
 
       return {
         type: "step" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
+        position: stubPosition,
         text: fullText.trim(),
         ingredients: allIngredients,
         cookware: allCookware,
@@ -316,99 +544,77 @@ function createSemantics() {
       }
     },
 
-    Ingredient(fixed, _at, name, amount) {
-      const isFixed = fixed.numChildren > 0
-
-      // Extract name from the name node
-      let nameStr = ""
-      const nameSource = name.sourceString
-      if (nameSource.endsWith("{}")) {
-        // Multi-word ingredient
-        nameStr = nameSource.slice(0, -2).trim()
-      } else {
-        // Single word ingredient
-        nameStr = nameSource.trim()
-      }
-
-      // Extract amount details
-      let quantity: string | undefined
-      let unit: string | undefined
-      let preparation: string | undefined
-
-      if (amount.numChildren > 0) {
-        const amountSource = amount.sourceString // e.g., "{250%g}" or "{250%g chopped}"
-        // Remove the braces
-        const content = amountSource.slice(1, -1).trim()
-
-        // Try to parse quantity%unit preparation format
-        const unitMatch = content.match(/^(\d+(?:\.\d+)?)\s*%\s*(\S+)(?:\s+(.+))?$/)
-        if (unitMatch) {
-          quantity = unitMatch[1]
-          unit = unitMatch[2]
-          preparation = unitMatch[3]
-        } else {
-          // No unit format, just check if there's a preparation
-          const parts = content.split(/\s+/)
-          if (parts.length >= 1 && parts[0]) {
-            quantity = parts[0]
-          }
-          if (parts.length >= 3) {
-            unit = parts[1]
-            preparation = parts.slice(2).join(" ")
-          } else if (parts.length === 2) {
-            // Could be unit or preparation
-            unit = parts[1]
-          }
-        }
-      }
+    Ingredient_multi(_fixed, _at, _mods, _nameFirst, _space, _nameRest, _amount, _prep) {
+      const parsed = parseIngredientToken(
+        (this as unknown as { sourceString: string }).sourceString,
+      )
 
       return {
         type: "ingredient" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
-        name: nameStr,
-        quantity,
-        unit,
-        preparation,
-        fixed: isFixed,
+        position: stubPosition,
+        name: parsed.name,
+        quantity: parsed.quantity,
+        unit: parsed.unit,
+        preparation: parsed.preparation,
+        fixed: parsed.fixed,
       } satisfies Ingredient
     },
 
-    Cookware(_hash, name) {
-      const nameSource = name.sourceString
-      let nameStr = ""
+    Ingredient_single(_fixed, _at, _mods, _name, _amount, _prep) {
+      const parsed = parseIngredientToken(
+        (this as unknown as { sourceString: string }).sourceString,
+      )
 
-      if (nameSource.endsWith("{}")) {
-        // Multi-word cookware
-        nameStr = nameSource.slice(0, -2).trim()
-      } else {
-        // Single word cookware
-        nameStr = nameSource.trim()
-      }
+      return {
+        type: "ingredient" as const,
+        position: stubPosition,
+        name: parsed.name,
+        quantity: parsed.quantity,
+        unit: parsed.unit,
+        preparation: parsed.preparation,
+        fixed: parsed.fixed,
+      } satisfies Ingredient
+    },
+
+    Cookware_multi(_hash, _mods, _nameFirst, _space, _nameRest, _amount) {
+      const parsed = parseCookwareToken((this as unknown as { sourceString: string }).sourceString)
 
       return {
         type: "cookware" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
-        name: nameStr,
+        position: stubPosition,
+        name: parsed.name,
       } satisfies Cookware
     },
 
-    Timer(_tilde, name, _lbrace, quantity, unit, _rbrace) {
-      const nameStr = name.numChildren > 0 ? name.sourceString.trim() : undefined
-      const quantityStr = quantity.sourceString.trim()
-      // Extract unit content without the % prefix - TimerUnit is "%" unitContent
-      let unitStr: string | undefined
-      if (unit.numChildren > 0) {
-        const unitSource = unit.sourceString.trim()
-        // Remove the leading % to get just the unit content
-        unitStr = unitSource.startsWith('%') ? unitSource.slice(1).trim() : unitSource
-      }
+    Cookware_single(_hash, _mods, _name, _amount) {
+      const parsed = parseCookwareToken((this as unknown as { sourceString: string }).sourceString)
+
+      return {
+        type: "cookware" as const,
+        position: stubPosition,
+        name: parsed.name,
+      } satisfies Cookware
+    },
+
+    Timer_withAmount(_tilde, _name, _lbrace, _quantity, _unit, _rbrace) {
+      const parsed = parseTimerToken((this as unknown as { sourceString: string }).sourceString)
 
       return {
         type: "timer" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
-        name: nameStr,
-        quantity: quantityStr,
-        unit: unitStr,
+        position: stubPosition,
+        name: parsed.name,
+        quantity: parsed.quantity,
+        unit: parsed.unit,
+      } satisfies Timer
+    },
+
+    Timer_word(_tilde, name) {
+      return {
+        type: "timer" as const,
+        position: stubPosition,
+        name: name.sourceString.trim(),
+        quantity: "",
+        unit: undefined,
       } satisfies Timer
     },
 
@@ -417,7 +623,7 @@ function createSemantics() {
       const text = noteContents.sourceString.trim()
       return {
         type: "note" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
+        position: stubPosition,
         text,
       } satisfies Note
     },
@@ -425,24 +631,28 @@ function createSemantics() {
     InlineComment(_dash, text) {
       return {
         type: "comment" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
+        position: stubPosition,
         text: text.sourceString.trim(),
       } satisfies Comment
     },
 
-    BlockComment(_start, text, _end) {
-      return {
-        type: "blockComment" as const,
-        position: getPosition((this as unknown as { interval: Ohm.Interval }).interval),
-        text: text.sourceString.trim(),
-      } satisfies BlockComment
+    BlockComment(_start, _text, _end) {
+      return null
     },
 
     RecipeItem(self) {
       return (self as unknown as { toAST(): unknown }).toAST()
     },
 
+    CommentLine(_spaces, _comment, _newline) {
+      return null
+    },
+
     blankLine(_spaces, _newline) {
+      return null
+    },
+
+    spaceOnly(_spaces, _end) {
       return null
     },
 
@@ -467,9 +677,9 @@ function validateRecipe(recipe: Recipe, source: string): ParseError[] {
   let depth = 0
   for (let i = 0; i < source.length; i++) {
     const char = source[i]
-    if (char === '{') {
+    if (char === "{") {
       depth++
-    } else if (char === '}') {
+    } else if (char === "}") {
       depth--
     }
   }
@@ -487,6 +697,18 @@ function validateRecipe(recipe: Recipe, source: string): ParseError[] {
     })
   }
 
+  for (const step of recipe.steps) {
+    for (const timer of step.timers) {
+      if (timer.quantity.trim().length > 0 && !timer.unit) {
+        errors.push({
+          message: "Invalid timer quantity: missing unit",
+          position: timer.position,
+          severity: "warning",
+        })
+      }
+    }
+  }
+
   return errors
 }
 
@@ -494,7 +716,19 @@ function validateRecipe(recipe: Recipe, source: string): ParseError[] {
  * Parse Cooklang source and return AST
  */
 export function parseToAST(source: string): Recipe {
-  const matchResult = grammar.match(source)
+  const directiveMetadata = extractMetadataDirectives(source)
+  const directiveMetadataEntries = Object.keys(directiveMetadata.metadata)
+  const directiveMetadataNode =
+    directiveMetadataEntries.length > 0
+      ? ({
+          type: "metadata" as const,
+          position: stubPosition,
+          content: directiveMetadata.content,
+          data: directiveMetadata.metadata,
+        } satisfies Metadata)
+      : null
+
+  const matchResult = grammar.match(directiveMetadata.strippedSource)
 
   if (!matchResult.succeeded()) {
     const errors: ParseError[] = []
@@ -508,7 +742,7 @@ export function parseToAST(source: string): Recipe {
     return {
       type: "recipe",
       position: { line: 1, column: 1, offset: 0 },
-      metadata: null,
+      metadata: directiveMetadataNode,
       sections: [],
       steps: [],
       notes: [],
@@ -519,8 +753,41 @@ export function parseToAST(source: string): Recipe {
   const cst = semantics(matchResult)
   const recipe = (cst as unknown as { toAST(): Recipe }).toAST()
 
+  if (recipe.metadata) {
+    const parsedFrontmatter = parseYamlFrontmatter(recipe.metadata.content)
+    recipe.metadata = {
+      ...recipe.metadata,
+      data: parsedFrontmatter.data,
+    }
+
+    if (parsedFrontmatter.warning) {
+      recipe.errors.push({
+        message: parsedFrontmatter.warning,
+        position: { line: 1, column: 1, offset: 0 },
+        severity: "warning",
+      })
+    }
+  }
+
+  if (directiveMetadataNode) {
+    if (recipe.metadata) {
+      recipe.metadata = {
+        ...recipe.metadata,
+        content: [recipe.metadata.content, directiveMetadataNode.content]
+          .filter(part => part.length > 0)
+          .join("\n"),
+        data: {
+          ...recipe.metadata.data,
+          ...directiveMetadataNode.data,
+        },
+      }
+    } else {
+      recipe.metadata = directiveMetadataNode
+    }
+  }
+
   // Add validation errors
-  const validationErrors = validateRecipe(recipe, source)
+  const validationErrors = validateRecipe(recipe, directiveMetadata.strippedSource)
   recipe.errors.push(...validationErrors)
 
   return recipe

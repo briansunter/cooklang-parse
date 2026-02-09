@@ -45,15 +45,18 @@ Cooklang {
     = cookware | timer | ingredient | comment_inline | text
 
   text
-    = (~("\n" | "\r\n" | "\r" | "@" &wordChar | "#" &wordChar | "~" &wordChar | "~" &"{") any)+
+    = (~("\n" | "\r\n" | "\r" | "@" &wordChar | "#" &wordChar | "~" &wordChar | "~" &"{" | "-- ") any)+
 
   comment_inline
-    = " "* "--" (~("\n" | "\r\n" | "\r") any)*
+    = "-- " (~("\n" | "\r\n" | "\r") any)*
 
   // ========== INGREDIENTS ==========
   ingredient
-    = "@" nameMultiWord amount
-    | "@" nameSingleWord amount?
+    = "@" nameMultiWord amount preparation?
+    | "@" nameSingleWord amount? preparation?
+
+  preparation
+    = "(" (~")" any)* ")"
 
   // ========== COOKWARE ==========
   cookware

@@ -108,14 +108,6 @@ export interface Comment extends ASTNode {
 }
 
 /**
- * Block comment ([- comment -])
- */
-export interface BlockComment extends ASTNode {
-  type: "blockComment"
-  text: string
-}
-
-/**
  * Note line (> note text)
  */
 export interface Note extends ASTNode {
@@ -180,5 +172,5 @@ export interface SimplifiedStep {
   ingredients: SimplifiedIngredient[]
   cookware: string[]
   timers: SimplifiedTimer[]
-  inlineComments?: string[]
+  inlineComments: string[]
 }
