@@ -900,30 +900,11 @@ Mix @flour{250%g}.
   expect(warning.message).toContain('got a string');
 });
 
-test('unclosed brace after ingredient produces warning', () => {
-  const source = `Add @flour then {some text.`;
-
-  const recipe = parseCooklang(source);
-
-  const warnings = recipe.warnings;
-  expect(warnings.length).toBeGreaterThan(0);
-  expect(warnings.some(w => /unclosed brace/i.test(w.message))).toBe(true);
-});
-
-test('unclosed brace after cookware produces warning', () => {
-  const source = `Use #pan then {some text.`;
-
-  const recipe = parseCooklang(source);
-
-  const warnings = recipe.warnings;
-  expect(warnings.length).toBeGreaterThan(0);
-  expect(warnings.some(w => /unclosed brace/i.test(w.message))).toBe(true);
-});
-
-test('properly closed braces do not produce warnings', () => {
+test('braces in text do not produce false warnings', () => {
   const source = `Add @flour{250%g} and @eggs{3}.`;
 
   const recipe = parseCooklang(source);
 
   expect(recipe.errors).toHaveLength(0);
+  expect(recipe.warnings).toHaveLength(0);
 });
