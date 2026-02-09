@@ -635,7 +635,7 @@ invalid yaml here
 
   expect(recipe.metadata).toEqual({});
   expect(recipe.ingredients.map(i => i.name)).toEqual(['eggs', 'butter']);
-  expect(recipe.errors.some(e => e.severity === 'warning' && /yaml/i.test(e.message))).toBe(true);
+  expect(recipe.warnings.some(e => /yaml/i.test(e.message))).toBe(true);
 });
 
 test('parse single-word timer without braces', () => {
@@ -770,7 +770,7 @@ Mix @flour{250%g}.
   const recipe = parseCooklang(source);
 
   expect(recipe.metadata).toEqual({});
-  expect(recipe.errors.some(e => e.severity === 'warning' && /expected a key/i.test(e.message))).toBe(true);
+  expect(recipe.warnings.some(e => /expected a key/i.test(e.message))).toBe(true);
 });
 
 test('array YAML frontmatter produces warning', () => {
@@ -784,7 +784,7 @@ Mix @flour{250%g}.
   const recipe = parseCooklang(source);
 
   expect(recipe.metadata).toEqual({});
-  expect(recipe.errors.some(e => e.severity === 'warning' && /expected a key/i.test(e.message))).toBe(true);
+  expect(recipe.warnings.some(e => /expected a key/i.test(e.message))).toBe(true);
 });
 
 test('malformed YAML in directive value falls back to string', () => {
@@ -867,10 +867,10 @@ invalid yaml here
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.errors.some(e => e.severity === 'warning' && /yaml/i.test(e.message))).toBe(true);
-  const yamlError = recipe.errors.find(e => /yaml/i.test(e.message))!;
+  expect(recipe.warnings.some(e => /yaml/i.test(e.message))).toBe(true);
+  const yamlWarning = recipe.warnings.find(e => /yaml/i.test(e.message))!;
   // Offset should be > 0 since the error is inside the YAML block, not at the start of the file
-  expect(yamlError.position.offset).toBeGreaterThan(0);
+  expect(yamlWarning.position.offset).toBeGreaterThan(0);
 });
 
 test('non-object YAML frontmatter reports what type was found', () => {
@@ -883,7 +883,7 @@ Mix @flour{250%g}.
 
   const recipe = parseCooklang(source);
 
-  const warning = recipe.errors.find(e => e.severity === 'warning')!;
+  const warning = recipe.warnings[0]!;
   expect(warning.message).toContain('got an array');
 });
 
@@ -896,7 +896,7 @@ Mix @flour{250%g}.
 
   const recipe = parseCooklang(source);
 
-  const warning = recipe.errors.find(e => e.severity === 'warning')!;
+  const warning = recipe.warnings[0]!;
   expect(warning.message).toContain('got a string');
 });
 
@@ -905,7 +905,7 @@ test('unclosed brace after ingredient produces warning', () => {
 
   const recipe = parseCooklang(source);
 
-  const warnings = recipe.errors.filter(e => e.severity === 'warning');
+  const warnings = recipe.warnings;
   expect(warnings.length).toBeGreaterThan(0);
   expect(warnings.some(w => /unclosed brace/i.test(w.message))).toBe(true);
 });
@@ -915,7 +915,7 @@ test('unclosed brace after cookware produces warning', () => {
 
   const recipe = parseCooklang(source);
 
-  const warnings = recipe.errors.filter(e => e.severity === 'warning');
+  const warnings = recipe.warnings;
   expect(warnings.length).toBeGreaterThan(0);
   expect(warnings.some(w => /unclosed brace/i.test(w.message))).toBe(true);
 });

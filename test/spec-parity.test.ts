@@ -164,5 +164,5 @@ tags: [unclosed
 
   expect(recipe.metadata).toEqual({})
   expect(recipe.ingredients.map(i => i.name)).toEqual(["flour"])
-  expect(recipe.errors.some(e => e.severity === "warning" && /yaml/i.test(e.message))).toBe(true)
+  expect(recipe.warnings.some(e => /yaml/i.test(e.message))).toBe(true)
 })

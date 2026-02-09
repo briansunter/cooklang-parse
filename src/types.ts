@@ -20,6 +20,7 @@ export interface CooklangRecipe {
   sections: string[]
   notes: string[]
   errors: ParseError[]
+  warnings: ParseError[]
 }
 
 export type RecipeStepItem =

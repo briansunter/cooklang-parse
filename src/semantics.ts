@@ -356,22 +356,23 @@ export function parseCooklang(source: string): CooklangRecipe {
           severity: "error",
         },
       ],
+      warnings: [],
     }
   }
 
   const result: SemanticResult = semantics(matchResult).toAST()
   const yamlStartOffset = result.frontmatter ? source.indexOf("---") + 4 : 0
   const yaml = result.frontmatter ? parseYamlFrontmatter(result.frontmatter, yamlStartOffset) : null
-  const errors: ParseError[] = []
+  const warnings: ParseError[] = []
   if (yaml?.warning) {
-    errors.push({
+    warnings.push({
       message: yaml.warning,
       position: yaml.position ?? { line: 1, column: 1, offset: 0 },
       severity: "warning",
     })
   }
 
-  errors.push(...detectUnclosedBraces(result.steps))
+  warnings.push(...detectUnclosedBraces(result.steps))
 
   const metadata = { ...yaml?.data, ...directives.metadata }
   const keyFn = (i: { name: string; quantity: string | number; units: string }) =>
@@ -385,7 +386,8 @@ export function parseCooklang(source: string): CooklangRecipe {
     timers: collectUnique<RecipeTimer>(result.steps, "timer", keyFn),
     sections: result.sections,
     notes: result.notes,
-    errors,
+    errors: [],
+    warnings,
   }
 }
 
