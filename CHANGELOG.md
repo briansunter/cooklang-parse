@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2](https://github.com/briansunter/cooklang-parse/compare/v1.1.1...v1.1.2) (2026-02-09)
+
+
+### Bug Fixes
+
+* build with browser target for universal runtime compatibility ([acde89d](https://github.com/briansunter/cooklang-parse/commit/acde89d2df5bd6bb33276aeb817ed4a771919416))
+* correct YAML error line number being off by one ([7a91e46](https://github.com/briansunter/cooklang-parse/commit/7a91e4663bade07b8ba6c6d90e43dd5d8c1f0da9))
+
 ## [1.1.1](https://github.com/briansunter/cooklang-parse/compare/v1.1.0...v1.1.1) (2026-02-09)
 
 
