@@ -20,6 +20,8 @@ import type {
   Section,
   SourcePosition,
   Step,
+  StepItem,
+  TextItem,
   Timer,
 } from "./types.js"
 
@@ -300,6 +302,7 @@ function parseIngredientToken(token: string): {
   unit?: string
   preparation?: string
   fixed: boolean
+  rawAmount?: string
 } {
   let raw = token.trim()
   let fixed = false
@@ -344,24 +347,29 @@ function parseIngredientToken(token: string): {
     quantity: amount.quantity,
     unit: amount.unit,
     preparation: finalPreparation,
+    rawAmount: amountContent,
   }
 }
 
-function parseCookwareToken(token: string): { name: string } {
+function parseCookwareToken(token: string): { name: string; quantity?: string } {
   let raw = token.trim()
   if (raw.startsWith("#")) {
     raw = raw.slice(1)
   }
 
   raw = raw.replace(/^[&?+-]+/, "")
-  const { namePart } = splitNameAndAmount(raw)
-  return { name: normalizeComponentName(namePart) }
+  const { namePart, amountContent } = splitNameAndAmount(raw)
+  return {
+    name: normalizeComponentName(namePart),
+    quantity: amountContent?.trim() || undefined,
+  }
 }
 
 function parseTimerToken(token: string): {
   name?: string
   quantity: string
   unit?: string
+  rawAmount?: string
 } {
   const trimmed = token.trim()
   const withoutPrefix = trimmed.startsWith("~") ? trimmed.slice(1) : trimmed
@@ -381,6 +389,7 @@ function parseTimerToken(token: string): {
     name: parsedName.length > 0 ? parsedName : undefined,
     quantity: amount.quantity ?? "",
     unit: amount.unit,
+    rawAmount: amountContent,
   }
 }
 
@@ -388,6 +397,37 @@ function parseTimerToken(token: string): {
  * Stub position - proper line/column tracking not yet implemented
  */
 const stubPosition: SourcePosition = { line: 1, column: 1, offset: 0 }
+
+/** Get the source string from an Ohm semantic action context */
+function getSource(ctx: unknown): string {
+  return (ctx as { sourceString: string }).sourceString
+}
+
+/** Build an Ingredient AST node from the semantic action context */
+function ingredientFromSource(ctx: unknown): Ingredient {
+  const parsed = parseIngredientToken(getSource(ctx))
+  return {
+    type: "ingredient",
+    position: stubPosition,
+    name: parsed.name,
+    quantity: parsed.quantity,
+    unit: parsed.unit,
+    preparation: parsed.preparation,
+    fixed: parsed.fixed,
+    rawAmount: parsed.rawAmount,
+  }
+}
+
+/** Build a Cookware AST node from the semantic action context */
+function cookwareFromSource(ctx: unknown): Cookware {
+  const parsed = parseCookwareToken(getSource(ctx))
+  return {
+    type: "cookware",
+    position: stubPosition,
+    name: parsed.name,
+    quantity: parsed.quantity,
+  }
+}
 
 /**
  * Create semantic actions for AST building
@@ -467,6 +507,7 @@ function createSemantics() {
           line as {
             toAST(): {
               text: string
+              items: StepItem[]
               ingredients: Ingredient[]
               cookware: Cookware[]
               timers: Timer[]
@@ -475,6 +516,7 @@ function createSemantics() {
           }
         ).toAST(),
       )
+      const allItems: StepItem[] = []
       const allIngredients: Ingredient[] = []
       const allCookware: Cookware[] = []
       const allTimers: Timer[] = []
@@ -484,6 +526,7 @@ function createSemantics() {
 
       for (const line of stepLines) {
         fullText += `${line.text}\n`
+        allItems.push(...line.items)
         allIngredients.push(...line.ingredients)
         allCookware.push(...line.cookware)
         allTimers.push(...line.timers)
@@ -494,6 +537,7 @@ function createSemantics() {
         type: "step" as const,
         position: stubPosition,
         text: fullText.trim(),
+        items: allItems,
         ingredients: allIngredients,
         cookware: allCookware,
         timers: allTimers,
@@ -506,19 +550,26 @@ function createSemantics() {
         .map((c: unknown) => (c as unknown as { toAST?: () => unknown }).toAST?.())
         .filter((c): c is NonNullable<typeof c> => c !== null && c !== undefined)
 
+      const orderedItems: StepItem[] = []
       const ingredients: Ingredient[] = []
       const cookware: Cookware[] = []
       const timers: Timer[] = []
       const inlineComments: Comment[] = []
 
       for (const item of stepItems) {
-        if ((item as { type: string }).type === "ingredient") {
+        const typed = item as { type: string }
+        if (typed.type === "ingredient") {
           ingredients.push(item as Ingredient)
-        } else if ((item as { type: string }).type === "cookware") {
+          orderedItems.push(item as Ingredient)
+        } else if (typed.type === "cookware") {
           cookware.push(item as Cookware)
-        } else if ((item as { type: string }).type === "timer") {
+          orderedItems.push(item as Cookware)
+        } else if (typed.type === "timer") {
           timers.push(item as Timer)
-        } else if ((item as { type: string }).type === "comment") {
+          orderedItems.push(item as Timer)
+        } else if (typed.type === "text") {
+          orderedItems.push(item as TextItem)
+        } else if (typed.type === "comment") {
           inlineComments.push(item as Comment)
         }
       }
@@ -527,10 +578,9 @@ function createSemantics() {
         inlineComments.push((inlineComment.children[0] as unknown as { toAST(): Comment }).toAST())
       }
 
-      // Use the full source string for the text
-      const text = (this as unknown as { sourceString: string }).sourceString
+      const text = getSource(this)
 
-      return { text, ingredients, cookware, timers, inlineComments }
+      return { text, items: orderedItems, ingredients, cookware, timers, inlineComments }
     },
 
     StepItem(self) {
@@ -545,59 +595,23 @@ function createSemantics() {
     },
 
     Ingredient_multi(_fixed, _at, _mods, _nameFirst, _space, _nameRest, _amount, _prep) {
-      const parsed = parseIngredientToken(
-        (this as unknown as { sourceString: string }).sourceString,
-      )
-
-      return {
-        type: "ingredient" as const,
-        position: stubPosition,
-        name: parsed.name,
-        quantity: parsed.quantity,
-        unit: parsed.unit,
-        preparation: parsed.preparation,
-        fixed: parsed.fixed,
-      } satisfies Ingredient
+      return ingredientFromSource(this)
     },
 
     Ingredient_single(_fixed, _at, _mods, _name, _amount, _prep) {
-      const parsed = parseIngredientToken(
-        (this as unknown as { sourceString: string }).sourceString,
-      )
-
-      return {
-        type: "ingredient" as const,
-        position: stubPosition,
-        name: parsed.name,
-        quantity: parsed.quantity,
-        unit: parsed.unit,
-        preparation: parsed.preparation,
-        fixed: parsed.fixed,
-      } satisfies Ingredient
+      return ingredientFromSource(this)
     },
 
     Cookware_multi(_hash, _mods, _nameFirst, _space, _nameRest, _amount) {
-      const parsed = parseCookwareToken((this as unknown as { sourceString: string }).sourceString)
-
-      return {
-        type: "cookware" as const,
-        position: stubPosition,
-        name: parsed.name,
-      } satisfies Cookware
+      return cookwareFromSource(this)
     },
 
     Cookware_single(_hash, _mods, _name, _amount) {
-      const parsed = parseCookwareToken((this as unknown as { sourceString: string }).sourceString)
-
-      return {
-        type: "cookware" as const,
-        position: stubPosition,
-        name: parsed.name,
-      } satisfies Cookware
+      return cookwareFromSource(this)
     },
 
     Timer_withAmount(_tilde, _name, _lbrace, _quantity, _unit, _rbrace) {
-      const parsed = parseTimerToken((this as unknown as { sourceString: string }).sourceString)
+      const parsed = parseTimerToken(getSource(this))
 
       return {
         type: "timer" as const,
@@ -605,6 +619,7 @@ function createSemantics() {
         name: parsed.name,
         quantity: parsed.quantity,
         unit: parsed.unit,
+        rawAmount: parsed.rawAmount,
       } satisfies Timer
     },
 

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { parseToCanonical, type CanonicalResult } from "../src/canonicalSemantics"
+import { parseToCanonical, type CanonicalResult } from "../src/canonicalConverter"
 
 interface CanonicalCase {
   source: string

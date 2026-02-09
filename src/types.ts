@@ -58,11 +58,25 @@ export interface Section extends ASTNode {
 }
 
 /**
+ * Text fragment within a step's ordered items
+ */
+export interface TextItem {
+  type: "text"
+  value: string
+}
+
+/**
+ * Ordered item within a step (text interleaved with tokens)
+ */
+export type StepItem = TextItem | Ingredient | Cookware | Timer
+
+/**
  * A cooking step (paragraph of text)
  */
 export interface Step extends ASTNode {
   type: "step"
   text: string
+  items: StepItem[]
   ingredients: Ingredient[]
   cookware: Cookware[]
   timers: Timer[]
@@ -79,6 +93,7 @@ export interface Ingredient extends ASTNode {
   unit?: string
   preparation?: string
   fixed: boolean // If true, quantity doesn't scale with servings
+  rawAmount?: string // Raw content inside {} for canonical conversion
 }
 
 /**
@@ -87,6 +102,7 @@ export interface Ingredient extends ASTNode {
 export interface Cookware extends ASTNode {
   type: "cookware"
   name: string
+  quantity?: string
 }
 
 /**
@@ -97,6 +113,7 @@ export interface Timer extends ASTNode {
   name?: string
   quantity: string
   unit?: string
+  rawAmount?: string // Raw content inside {} for canonical conversion
 }
 
 /**

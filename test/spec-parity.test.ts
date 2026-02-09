@@ -132,7 +132,7 @@ test("spec parity: fixed quantity inside braces", () => {
 })
 
 test("spec parity: canonical format for fixed quantity", () => {
-  const { parseToCanonical } = require("../src/canonicalSemantics")
+  const { parseToCanonical } = require("../src/canonicalConverter")
   const result = parseToCanonical("Add @salt{=1%tsp} to taste.\n")
 
   expect(result.steps[0]).toEqual([

@@ -4,6 +4,7 @@
  * A simple, type-safe Cooklang parser using Ohm
  */
 
+export { convertToCanonical, parseToCanonical } from "./canonicalConverter.js"
 export { convertToSimplified } from "./converter.js"
 export { getGrammar, parseToAST } from "./semantics.js"
 export type * from "./types.js"

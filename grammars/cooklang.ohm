@@ -32,7 +32,10 @@ Cooklang {
     = StepLine+
 
   StepLine
-    = ~(hspace* "-- ") ~(hspace* newline) StepItem+ InlineComment? "\n"?
+    = ~(hspace* "-- ") ~(hspace* newline) ~sectionStart StepItem+ InlineComment? "\n"?
+
+  sectionStart
+    = "==" | "=" ~"=" ~"@"
 
   // Items that can appear in a step
   StepItem
@@ -40,10 +43,13 @@ Cooklang {
 
   // Text without special Cooklang syntax
   Text
-    = (~special any)+
+    = (~("\n" | "\r\n" | "\r" | "=" &"@" | "@" &ingredientStartChar | "#" &cookwareStartChar | "~" &wordChar | "~" &"{" | "-- " | "[-") any)+
 
-  special
-    = "@" | "#" | "~" | "=" | "-- " | "[-" | "==" | ">" | "\n" | "\r"
+  ingredientStartChar
+    = wordChar | "@" | "&" | "?" | "+" | "-"
+
+  cookwareStartChar
+    = wordChar | "&" | "?" | "+" | "-"
 
   // Ingredient: @name{quantity%unit} or @multi word name{}
   // Fixed quantity: =@name{quantity%unit}
@@ -58,10 +64,7 @@ Cooklang {
     = ("@" | "&" | "?" | "+" | "-")*
 
   ingredientWord
-    = ingredientWordChar+
-
-  ingredientWordChar
-    = ~"{" ~"}" ~"@" ~"#" ~"~" ~"=" ~hspace ~newline ~"," ~"." ~";" ~":" ~"!" ~"?" any
+    = componentWordChar+
 
   ingredientAmount
     = "{" (~"}" any)* "}"
@@ -78,10 +81,7 @@ Cooklang {
     = ("&" | "?" | "+" | "-")*
 
   cookwareWord
-    = cookwareWordChar+
-
-  cookwareWordChar
-    = ~"{" ~"}" ~"@" ~"#" ~"~" ~"=" ~hspace ~newline ~"," ~"." ~";" ~":" ~"!" ~"?" any
+    = componentWordChar+
 
   cookwareAmount
     = "{" (~"}" any)* "}"
@@ -119,15 +119,30 @@ Cooklang {
   BlockComment
     = "[-" (~"-]" any)+ "-]"
 
+  // Component name word char - wordChar plus | for alias syntax
+  componentWordChar
+    = wordChar | "|"
+
   // Basic tokens
   word
     = wordChar+
 
   wordChar
-    = letter | digit
+    = letter | digit | "_" | "-" | emoji | otherWordChar
 
-  punctuation
-    = ~"{}%@#~\n\r\t " any
+  emoji
+    = "\u{1F600}".."\u{1F64F}"
+    | "\u{1F300}".."\u{1F5FF}"
+    | "\u{1F680}".."\u{1F6FF}"
+    | "\u{2600}".."\u{26FF}"
+    | "\u{2700}".."\u{27BF}"
+    | "\u{1F900}".."\u{1F9FF}"
+    | "\u{1FA70}".."\u{1FAFF}"
+
+  otherWordChar
+    = "\u00C0".."\u00FF"
+    | "\u0100".."\u017F"
+    | "\u0400".."\u04FF"
 
   newline
     = "\n" | "\r\n" | "\r"
