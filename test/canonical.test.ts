@@ -95,3 +95,23 @@ test("leading metadata directives merge with frontmatter metadata", () => {
     title: "Pancakes",
   })
 })
+
+test("canonical: non-ASCII quantity preserved as string", () => {
+  const result = parseToCanonical("Add @item{大さじ%杯}.\n")
+
+  expect(result.steps[0]).toEqual([
+    { type: "text", value: "Add " },
+    { type: "ingredient", name: "item", quantity: "大さじ", units: "杯" },
+    { type: "text", value: "." },
+  ])
+})
+
+test("canonical: space-separated amount without percent", () => {
+  const result = parseToCanonical("Add @flour{2 tablespoons}.\n")
+
+  expect(result.steps[0]).toEqual([
+    { type: "text", value: "Add " },
+    { type: "ingredient", name: "flour", quantity: 2, units: "tablespoons" },
+    { type: "text", value: "." },
+  ])
+})

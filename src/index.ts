@@ -6,7 +6,7 @@
 
 export { convertToCanonical, parseToCanonical } from "./canonicalConverter"
 export { convertToSimplified } from "./converter"
-export { getGrammar, parseToAST } from "./semantics"
+export { grammar, parseToAST } from "./semantics"
 export type * from "./types"
 
 import { convertToSimplified } from "./converter"
@@ -43,9 +43,4 @@ import type { CooklangRecipe } from "./types"
 export function parseCooklang(source: string): CooklangRecipe {
   const ast = parseToAST(source)
   return convertToSimplified(ast)
-}
-
-export default {
-  parseCooklang,
-  parseToAST,
 }

@@ -241,9 +241,8 @@ Rest for ~{10%minutes}.
   expect(recipe.timers[0]).toEqual({ quantity: '10', unit: 'minutes' });
 });
 
-test('getGrammar returns grammar object', () => {
-  const { getGrammar } = require('../src/semantics.js');
-  const grammar = getGrammar();
+test('grammar export is an Ohm grammar object', () => {
+  const { grammar } = require('../src/semantics.js');
 
   expect(grammar).toBeDefined();
   expect(typeof grammar.match).toBe('function');
@@ -725,4 +724,89 @@ test('parse extended ingredient modifier syntax', () => {
     name: 'white wine',
     fixed: false,
   });
+});
+
+test('grammar parse error returns error in AST', () => {
+  const ast = parseToAST('=');
+
+  expect(ast.errors).toHaveLength(1);
+  expect(ast.errors[0]!.severity).toBe('error');
+  expect(ast.steps).toHaveLength(0);
+});
+
+test('both directives and frontmatter metadata merge', () => {
+  const source = `---
+title: Pancakes
+---
+>> author: Chef
+Mix @flour{250%g}.
+`;
+
+  const ast = parseToAST(source);
+
+  expect(ast.metadata).not.toBeNull();
+  expect(ast.metadata!.data.title).toBe('Pancakes');
+  expect(ast.metadata!.data.author).toBe('Chef');
+});
+
+test('non-object YAML frontmatter produces warning', () => {
+  const source = `---
+just a plain string
+---
+Mix @flour{250%g}.
+`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.metadata).toEqual({});
+  expect(recipe.errors.some(e => e.severity === 'warning' && /expected a key/i.test(e.message))).toBe(true);
+});
+
+test('array YAML frontmatter produces warning', () => {
+  const source = `---
+- item1
+- item2
+---
+Mix @flour{250%g}.
+`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.metadata).toEqual({});
+  expect(recipe.errors.some(e => e.severity === 'warning' && /expected a key/i.test(e.message))).toBe(true);
+});
+
+test('malformed YAML in directive value falls back to string', () => {
+  const source = `>> tags: [unclosed
+Mix @flour{250%g}.
+`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.metadata.tags).toBe('[unclosed');
+  expect(recipe.steps).toHaveLength(1);
+});
+
+test('space-separated ingredient amount without percent', () => {
+  const source = `Add @flour{2 cups}.`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.ingredients).toHaveLength(1);
+  expect(recipe.ingredients[0]).toEqual({
+    name: 'flour',
+    quantity: '2',
+    unit: 'cups',
+    fixed: false,
+  });
+});
+
+test('non-numeric multi-word amount treated as quantity', () => {
+  const source = `Add @flour{some amount}.`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.ingredients).toHaveLength(1);
+  expect(recipe.ingredients[0]!.name).toBe('flour');
+  expect(recipe.ingredients[0]!.quantity).toBe('some amount');
 });

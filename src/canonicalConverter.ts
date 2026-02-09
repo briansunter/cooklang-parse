@@ -1,43 +1,13 @@
-/**
- * Convert AST to canonical format matching the official Cooklang spec test output.
- */
-
 import { parseToAST } from "./semantics"
 import type { Recipe, StepItem } from "./types"
 
 type CanonicalValue = string | number
 
-interface CanonicalTextItem {
-  type: "text"
-  value: string
-}
-
-interface CanonicalIngredientItem {
-  type: "ingredient"
-  name: string
-  quantity: CanonicalValue
-  units: string
-}
-
-interface CanonicalCookwareItem {
-  type: "cookware"
-  name: string
-  quantity: CanonicalValue
-  units: string
-}
-
-interface CanonicalTimerItem {
-  type: "timer"
-  name: string
-  quantity: CanonicalValue
-  units: string
-}
-
 export type CanonicalStepItem =
-  | CanonicalTextItem
-  | CanonicalIngredientItem
-  | CanonicalCookwareItem
-  | CanonicalTimerItem
+  | { type: "text"; value: string }
+  | { type: "ingredient"; name: string; quantity: CanonicalValue; units: string }
+  | { type: "cookware"; name: string; quantity: CanonicalValue; units: string }
+  | { type: "timer"; name: string; quantity: CanonicalValue; units: string }
 
 export interface CanonicalResult {
   metadata: Record<string, string>
@@ -97,20 +67,16 @@ function parseAmount(content: string): { quantity: string | number; units: strin
 function mergeConsecutiveTexts(items: CanonicalStepItem[]): CanonicalStepItem[] {
   const result: CanonicalStepItem[] = []
   let currentText = ""
-  let lastWasText = false
 
   for (const item of items) {
     if (item.type === "text") {
-      if (lastWasText) currentText += " "
-      currentText += item.value
-      lastWasText = true
+      currentText += (currentText ? " " : "") + item.value
     } else {
       if (currentText) {
         result.push({ type: "text", value: currentText })
         currentText = ""
       }
       result.push(item)
-      lastWasText = false
     }
   }
 
@@ -160,27 +126,17 @@ export function convertToCanonical(
   ast: Recipe,
   directiveMetadata: Record<string, string>,
 ): CanonicalResult {
-  const frontmatterMeta: Record<string, string> = {}
-  if (ast.metadata?.data) {
-    for (const [key, value] of Object.entries(ast.metadata.data)) {
-      frontmatterMeta[key] = String(value)
-    }
-  }
-
+  const frontmatterMeta = Object.fromEntries(
+    Object.entries(ast.metadata?.data ?? {}).map(([k, v]) => [k, String(v)]),
+  )
   const metadata = sortKeys({ ...frontmatterMeta, ...directiveMetadata })
-
-  const steps: CanonicalStepItem[][] = []
-  for (const step of ast.steps) {
-    const canonicalItems: CanonicalStepItem[] = []
-    for (const item of step.items) {
-      const converted = convertItem(item)
-      if (converted) canonicalItems.push(converted)
-    }
-    if (canonicalItems.length > 0) {
-      steps.push(mergeConsecutiveTexts(canonicalItems))
-    }
-  }
-
+  const steps = ast.steps
+    .map(step =>
+      mergeConsecutiveTexts(
+        step.items.map(convertItem).filter((c): c is CanonicalStepItem => c != null),
+      ),
+    )
+    .filter(items => items.length > 0)
   return { metadata, steps }
 }
 

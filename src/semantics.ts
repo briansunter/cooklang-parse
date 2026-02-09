@@ -1,8 +1,3 @@
-/**
- * Ohm semantics for Cooklang grammar
- * Defines how to convert the parse tree into our AST
- */
-
 import * as Ohm from "ohm-js"
 import YAML from "yaml"
 import grammarSource from "../grammars/cooklang.ohm" with { type: "text" }
@@ -17,7 +12,6 @@ import type {
   SourcePosition,
   Step,
   StepItem,
-  TextItem,
   Timer,
 } from "./types"
 
@@ -39,32 +33,16 @@ function parseYamlFrontmatter(content: string): {
   warning?: string
 } {
   try {
-    const doc = YAML.parseDocument(content)
-
-    if (doc.errors.length > 0) {
-      return {
-        data: {},
-        warning: `Invalid YAML frontmatter: ${doc.errors[0]?.message ?? "parse error"}`,
-      }
-    }
-
-    const parsed = doc.toJS()
+    const parsed = YAML.parse(content)
     if (parsed == null) return { data: {} }
-
     if (typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {
-        data: {},
-        warning: "Invalid YAML frontmatter: expected a key/value mapping",
-      }
+      return { data: {}, warning: "Invalid YAML frontmatter: expected a key/value mapping" }
     }
-
     return { data: parsed as Record<string, unknown> }
   } catch (error) {
     return {
       data: {},
-      warning: `Invalid YAML frontmatter: ${
-        error instanceof Error ? error.message : "parse error"
-      }`,
+      warning: `Invalid YAML frontmatter: ${error instanceof Error ? error.message : "parse error"}`,
     }
   }
 }
@@ -87,12 +65,8 @@ function extractMetadataDirectives(source: string): {
       continue
     }
 
-    const key = match[1]?.trim()
-    const value = match[2]
-    if (!key || value === undefined) {
-      stripped.push(line)
-      continue
-    }
+    const key = (match[1] as string).trim()
+    const value = match[2] as string
 
     metadata[key] = parseMetadataValue(value)
     content.push(line)
@@ -172,24 +146,9 @@ function splitNameAndAmount(raw: string): {
 function normalizeComponentName(namePart: string): string {
   let name = namePart.trim()
 
-  if (name.endsWith("{}")) {
-    name = name.slice(0, -2).trim()
-  }
-
   const aliasIdx = name.indexOf("|")
   if (aliasIdx !== -1) {
     name = name.slice(0, aliasIdx).trim()
-  }
-
-  if (name.startsWith("(")) {
-    const close = name.indexOf(")")
-    if (close !== -1) {
-      name = name.slice(close + 1).trim()
-    }
-  }
-
-  while (name.startsWith("&")) {
-    name = name.slice(1).trim()
   }
 
   return name
@@ -209,10 +168,6 @@ function parseIngredientToken(token: string): {
   if (raw.startsWith("=")) {
     fixed = true
     raw = raw.slice(1).trimStart()
-  }
-
-  if (raw.startsWith("@")) {
-    raw = raw.slice(1)
   }
 
   raw = raw.replace(/^[@&?+-]+/, "")
@@ -246,12 +201,7 @@ function parseIngredientToken(token: string): {
 }
 
 function parseCookwareToken(token: string): { name: string; quantity?: string } {
-  let raw = token.trim()
-  if (raw.startsWith("#")) {
-    raw = raw.slice(1)
-  }
-
-  raw = raw.replace(/^[&?+-]+/, "")
+  const raw = token.trim().replace(/^[#&?+-]+/, "")
   const { namePart, amountContent } = splitNameAndAmount(raw)
   return {
     name: normalizeComponentName(namePart),
@@ -268,23 +218,12 @@ function parseTimerToken(token: string): {
   const trimmed = token.trim()
   const withoutPrefix = trimmed.startsWith("~") ? trimmed.slice(1) : trimmed
   const { namePart, amountContent } = splitNameAndAmount(withoutPrefix)
+  const name = namePart.trim() || undefined
 
-  const parsedName = namePart.trim()
-  if (amountContent === undefined) {
-    return {
-      name: parsedName.length > 0 ? parsedName : undefined,
-      quantity: "",
-      unit: undefined,
-    }
-  }
+  if (amountContent === undefined) return { name, quantity: "" }
 
   const amount = parseTokenAmount(amountContent)
-  return {
-    name: parsedName.length > 0 ? parsedName : undefined,
-    quantity: amount.quantity ?? "",
-    unit: amount.unit,
-    rawAmount: amountContent,
-  }
+  return { name, quantity: amount.quantity ?? "", unit: amount.unit, rawAmount: amountContent }
 }
 
 const stubPosition: SourcePosition = { line: 1, column: 1, offset: 0 }
@@ -293,36 +232,8 @@ function getSource(ctx: unknown): string {
   return (ctx as { sourceString: string }).sourceString
 }
 
-function ingredientFromSource(ctx: unknown): Ingredient {
-  const parsed = parseIngredientToken(getSource(ctx))
-  return {
-    type: "ingredient",
-    position: stubPosition,
-    name: parsed.name,
-    quantity: parsed.quantity,
-    unit: parsed.unit,
-    preparation: parsed.preparation,
-    fixed: parsed.fixed,
-    rawAmount: parsed.rawAmount,
-  }
-}
-
-function cookwareFromSource(ctx: unknown): Cookware {
-  const parsed = parseCookwareToken(getSource(ctx))
-  return {
-    type: "cookware",
-    position: stubPosition,
-    name: parsed.name,
-    quantity: parsed.quantity,
-  }
-}
-
-interface OhmNode {
-  toAST(): unknown
-}
-
 function callToAST(node: unknown): unknown {
-  return (node as OhmNode).toAST()
+  return (node as { toAST(): unknown }).toAST()
 }
 
 function createSemantics() {
@@ -330,36 +241,17 @@ function createSemantics() {
 
   semantics.addOperation("toAST", {
     Recipe(_metadata, items) {
-      const firstChild = _metadata.numChildren > 0 ? _metadata.children[0] : null
-      const metadataNode = firstChild ? (callToAST(firstChild) as Metadata) : null
-
-      const sectionsList: Section[] = []
-      const stepsList: Step[] = []
-      const notesList: Note[] = []
-
-      for (const item of items.children) {
-        const node = callToAST(item) as { type: string } | null
-        if (!node) continue
-        switch (node.type) {
-          case "section":
-            sectionsList.push(node as Section)
-            break
-          case "step":
-            stepsList.push(node as Step)
-            break
-          case "note":
-            notesList.push(node as Note)
-            break
-        }
-      }
+      const metadataNode =
+        _metadata.numChildren > 0 ? (callToAST(_metadata.children[0]) as Metadata) : null
+      const nodes = items.children.map(callToAST).filter(Boolean) as { type: string }[]
 
       return {
         type: "recipe",
         position: stubPosition,
         metadata: metadataNode,
-        sections: sectionsList,
-        steps: stepsList,
-        notes: notesList,
+        sections: nodes.filter((n): n is Section => n.type === "section"),
+        steps: nodes.filter((n): n is Step => n.type === "step"),
+        notes: nodes.filter((n): n is Note => n.type === "note"),
         errors: [],
       } as Recipe
     },
@@ -384,91 +276,34 @@ function createSemantics() {
     Step(lines) {
       const stepLines = lines.children.map(
         (line: unknown) =>
-          callToAST(line) as {
-            text: string
-            items: StepItem[]
-            ingredients: Ingredient[]
-            cookware: Cookware[]
-            timers: Timer[]
-            inlineComments: Comment[]
-          },
+          callToAST(line) as { text: string; items: StepItem[]; comments: Comment[] },
       )
-
-      const allItems: StepItem[] = []
-      const allIngredients: Ingredient[] = []
-      const allCookware: Cookware[] = []
-      const allTimers: Timer[] = []
-      const allComments: Comment[] = []
-      let fullText = ""
-
-      for (const line of stepLines) {
-        fullText += `${line.text}\n`
-        allItems.push(...line.items)
-        allIngredients.push(...line.ingredients)
-        allCookware.push(...line.cookware)
-        allTimers.push(...line.timers)
-        allComments.push(...line.inlineComments)
-      }
-
+      const items = stepLines.flatMap(l => l.items)
       return {
         type: "step",
         position: stubPosition,
-        text: fullText.trim(),
-        items: allItems,
-        ingredients: allIngredients,
-        cookware: allCookware,
-        timers: allTimers,
-        inlineComments: allComments,
+        text: stepLines
+          .map(l => l.text)
+          .join("\n")
+          .trim(),
+        items,
+        ingredients: items.filter((i): i is Ingredient => i.type === "ingredient"),
+        cookware: items.filter((i): i is Cookware => i.type === "cookware"),
+        timers: items.filter((i): i is Timer => i.type === "timer"),
+        inlineComments: stepLines.flatMap(l => l.comments),
       } as Step
     },
 
     StepLine(items, inlineComment, _newline) {
-      const stepItems = items.children
-        .map((c: unknown) => (c as { toAST?: () => unknown }).toAST?.())
-        .filter((c): c is NonNullable<typeof c> => c != null)
-
-      const orderedItems: StepItem[] = []
-      const ingredients: Ingredient[] = []
-      const cookware: Cookware[] = []
-      const timers: Timer[] = []
-      const inlineComments: Comment[] = []
-
-      for (const item of stepItems) {
-        const typed = item as { type: string }
-        switch (typed.type) {
-          case "ingredient":
-            ingredients.push(item as Ingredient)
-            orderedItems.push(item as Ingredient)
-            break
-          case "cookware":
-            cookware.push(item as Cookware)
-            orderedItems.push(item as Cookware)
-            break
-          case "timer":
-            timers.push(item as Timer)
-            orderedItems.push(item as Timer)
-            break
-          case "text":
-            orderedItems.push(item as TextItem)
-            break
-          case "comment":
-            inlineComments.push(item as Comment)
-            break
-        }
-      }
+      const stepItems = items.children.map(callToAST).filter(Boolean) as { type: string }[]
+      const orderedItems = stepItems.filter(i => i.type !== "comment") as StepItem[]
+      const comments = stepItems.filter(i => i.type === "comment") as Comment[]
 
       if (inlineComment.numChildren > 0) {
-        inlineComments.push(callToAST(inlineComment.children[0]) as Comment)
+        comments.push(callToAST(inlineComment.children[0]) as Comment)
       }
 
-      return {
-        text: getSource(this),
-        items: orderedItems,
-        ingredients,
-        cookware,
-        timers,
-        inlineComments,
-      }
+      return { text: getSource(this), items: orderedItems, comments }
     },
 
     StepItem(self) {
@@ -480,31 +315,31 @@ function createSemantics() {
     },
 
     Ingredient_multi(_fixed, _at, _mods, _nameFirst, _space, _nameRest, _amount, _prep) {
-      return ingredientFromSource(this)
+      return {
+        type: "ingredient",
+        position: stubPosition,
+        ...parseIngredientToken(getSource(this)),
+      }
     },
 
     Ingredient_single(_fixed, _at, _mods, _name, _amount, _prep) {
-      return ingredientFromSource(this)
+      return {
+        type: "ingredient",
+        position: stubPosition,
+        ...parseIngredientToken(getSource(this)),
+      }
     },
 
     Cookware_multi(_hash, _mods, _nameFirst, _space, _nameRest, _amount) {
-      return cookwareFromSource(this)
+      return { type: "cookware", position: stubPosition, ...parseCookwareToken(getSource(this)) }
     },
 
     Cookware_single(_hash, _mods, _name, _amount) {
-      return cookwareFromSource(this)
+      return { type: "cookware", position: stubPosition, ...parseCookwareToken(getSource(this)) }
     },
 
     Timer_withAmount(_tilde, _name, _lbrace, _quantity, _unit, _rbrace) {
-      const parsed = parseTimerToken(getSource(this))
-      return {
-        type: "timer",
-        position: stubPosition,
-        name: parsed.name,
-        quantity: parsed.quantity,
-        unit: parsed.unit,
-        rawAmount: parsed.rawAmount,
-      } as Timer
+      return { type: "timer", position: stubPosition, ...parseTimerToken(getSource(this)) } as Timer
     },
 
     Timer_word(_tilde, name) {
@@ -564,9 +399,8 @@ const semantics = createSemantics()
  */
 export function parseToAST(source: string): Recipe {
   const directiveMetadata = extractMetadataDirectives(source)
-  const directiveEntries = Object.keys(directiveMetadata.metadata)
   const directiveNode: Metadata | null =
-    directiveEntries.length > 0
+    Object.keys(directiveMetadata.metadata).length > 0
       ? {
           type: "metadata",
           position: stubPosition,
@@ -597,7 +431,7 @@ export function parseToAST(source: string): Recipe {
   }
 
   const cst = semantics(matchResult)
-  const recipe = (cst as OhmNode).toAST() as Recipe
+  const recipe = (cst as { toAST(): unknown }).toAST() as Recipe
 
   if (recipe.metadata) {
     const parsedFrontmatter = parseYamlFrontmatter(recipe.metadata.content)
@@ -629,9 +463,4 @@ export function parseToAST(source: string): Recipe {
   return recipe
 }
 
-/**
- * Get the raw Ohm grammar
- */
-export function getGrammar(): Ohm.Grammar {
-  return grammar
-}
+export { grammar }
