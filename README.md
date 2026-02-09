@@ -1,182 +1,185 @@
 # cooklang-parse
 
-> A simple, type-safe [Cooklang](https://cooklang.org) parser built with [Ohm](https://ohmjs.org)
+> A simple, type-safe [Cooklang](https://cooklang.org) parser built with [Ohm.js](https://ohmjs.org)
 
 [![npm version](https://badge.fury.io/js/cooklang-parse.svg)](https://www.npmjs.com/package/cooklang-parse)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
-- **Full Cooklang specification support** - Parse ingredients, cookware, timers, metadata, and more
-- **Type-safe** - Written in TypeScript with comprehensive type definitions
-- **Simple API** - One function to parse recipes into easy-to-use structures
-- **Well-tested** - Comprehensive test coverage
-- **Source position tracking** - All nodes include position information for error reporting
+- Full Cooklang spec support including ingredients, cookware, timers, metadata, sections, notes, and YAML frontmatter
+- Written in TypeScript with exported type definitions
+- Single function API — `parseCooklang(source)` returns a structured recipe
+- 190 tests with canonical parity against the [Rust reference implementation](https://github.com/cooklang/cooklang-rs)
+- Source position tracking and parse error reporting
 
 ## Installation
 
 ```bash
+npm install cooklang-parse
+# or
 bun add cooklang-parse
 ```
 
 ## Quick Start
 
 ```typescript
-import { parseCooklang } from "cooklang-parse";
+import { parseCooklang } from "cooklang-parse"
 
 const recipe = parseCooklang(`
-  Mix @flour{250%g} and @eggs{3}
-  Cook in #pan for ~{20%minutes}
-  Serve with @parsley{1%bunch} for garnish
-`);
+>> servings: 4
 
-console.log(recipe.ingredients);
-// [
-//   { name: 'flour', quantity: '250', unit: 'g', fixed: false },
-//   { name: 'eggs', quantity: '3', fixed: false },
-//   { name: 'parsley', quantity: '1', unit: 'bunch', fixed: false }
-// ]
+Preheat #oven to 180C.
+Mix @flour{250%g} and @eggs{3} in a #bowl{}.
+Bake for ~{20%minutes}.
+`)
 
-console.log(recipe.cookware);
-// ['pan']
-
-console.log(recipe.timers);
-// [{ quantity: '20', unit: 'minutes' }]
-
-console.log(recipe.steps);
-// [
-//   {
-//     text: 'Mix @flour{250%g} and @eggs{3}',
-//     ingredients: [...],
-//     cookware: [],
-//     timers: []
-//   },
-//   {
-//     text: 'Cook in #pan for ~{20%minutes}',
-//     ingredients: [],
-//     cookware: ['pan'],
-//     timers: [{ quantity: '20', unit: 'minutes' }]
-//   },
-//   ...
-// ]
+recipe.metadata    // { servings: 4 }
+recipe.ingredients // [{ type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false }, ...]
+recipe.cookware    // [{ type: "cookware", name: "oven", quantity: 1, units: "" }, ...]
+recipe.timers      // [{ type: "timer", name: "", quantity: 20, units: "minutes" }]
+recipe.steps       // [[{ type: "text", value: "Preheat " }, { type: "cookware", ... }, ...], ...]
+recipe.errors      // [] (parse errors and warnings)
 ```
 
 ## Cooklang Syntax
 
 | Syntax | Description | Example |
 |--------|-------------|---------|
-| `@name{qty%unit}` | Ingredient with quantity | `@flour{250%g}` |
-| `@name` | Ingredient without quantity | `@salt` |
-| `{qty%unit}` | Fixed quantity (doesn't scale) | `@water{500%ml}` |
-| `#name` | Cookware reference | `#pan` |
-| `#multi word{}` | Multi-word cookware | `#cast iron skillet{}` |
-| `~{qty%unit}` | Timer | `~{20%minutes}` |
+| `@name{qty%unit}` | Ingredient with quantity and unit | `@flour{250%g}` |
+| `@name{qty}` | Ingredient with quantity only | `@eggs{3}` |
+| `@name` | Ingredient (implicit "some") | `@salt` |
+| `@name{}` | Multi-word ingredient | `@olive oil{}` |
+| `#name{}` | Cookware | `#cast iron skillet{}` |
 | `~name{qty%unit}` | Named timer | `~resting{30%minutes}` |
-| `-- text` | Comment | `-- Be careful here` |
-| `[- text -]` | Block comment | `[- Chef's note -]` |
-| `> text` | Note | `> Serve hot` |
-| `== Section ==` | Section header | `== For the sauce ==` |
-| `---` | YAML metadata | Front matter block |
+| `~{qty%unit}` | Anonymous timer | `~{20%minutes}` |
+| `-- comment` | Inline comment (space required after `--`) | `-- note to self` |
+| `[- text -]` | Block comment | `[- Chef's tip -]` |
+| `> text` | Note | `> Serve immediately` |
+| `== Title ==` | Section header | `== For the sauce ==` |
+| `>> key: value` | Metadata directive | `>> servings: 4` |
+| `---` | YAML frontmatter block | See below |
+| `=@name{qty}` | Fixed quantity (won't scale) | `=@salt{1%tsp}` |
+| `@name{=qty}` | Fixed quantity (alternate) | `@salt{=1%tsp}` |
+| `@name{}(prep)` | Ingredient with preparation | `@flour{100%g}(sifted)` |
+| `@name\|alias{}` | Pipe alias syntax | `@ground beef\|beef{}` |
 
 ## API
 
 ### `parseCooklang(source: string): CooklangRecipe`
 
-Parse Cooklang source and return a simplified model.
-
-**Returns:** `CooklangRecipe`
+Parses a Cooklang source string into a structured recipe object.
 
 ```typescript
 interface CooklangRecipe {
   metadata: Record<string, unknown>
-  ingredients: SimplifiedIngredient[]
-  cookware: string[]
-  timers: SimplifiedTimer[]
-  steps: SimplifiedStep[]
-  notes: string[]
+  steps: RecipeStepItem[][]
+  ingredients: RecipeIngredient[]
+  cookware: RecipeCookware[]
+  timers: RecipeTimer[]
   sections: string[]
+  notes: string[]
   errors: ParseError[]
 }
-
-interface SimplifiedIngredient {
-  name: string
-  quantity?: string
-  unit?: string
-  preparation?: string
-  fixed: boolean
-}
-
-interface SimplifiedTimer {
-  name?: string
-  quantity: string
-  unit?: string
-}
-
-interface SimplifiedStep {
-  text: string
-  ingredients: SimplifiedIngredient[]
-  cookware: string[]
-  timers: SimplifiedTimer[]
-}
 ```
 
-### Advanced: AST Access
-
-For low-level access to the full AST:
+**`steps`** is an array of steps, where each step is an array of items:
 
 ```typescript
-import { parseToAST } from "cooklang-parse";
-
-const ast = parseToAST(source);
-// Returns Recipe interface with full position information
+type RecipeStepItem =
+  | { type: "text"; value: string }
+  | RecipeIngredient
+  | RecipeCookware
+  | RecipeTimer
 ```
 
-## Example Recipe with Metadata
+**`ingredients`**, **`cookware`**, and **`timers`** are deduplicated across all steps.
+
+### Types
+
+```typescript
+interface RecipeIngredient {
+  type: "ingredient"
+  name: string
+  quantity: number | string
+  units: string
+  fixed: boolean
+  preparation?: string
+}
+
+interface RecipeCookware {
+  type: "cookware"
+  name: string
+  quantity: number | string
+  units: string
+}
+
+interface RecipeTimer {
+  type: "timer"
+  name: string
+  quantity: number | string
+  units: string
+}
+
+interface ParseError {
+  message: string
+  shortMessage?: string
+  position: { line: number; column: number; offset: number }
+  severity: "error" | "warning"
+}
+```
+
+### Grammar Access
+
+The underlying Ohm.js grammar is exported for advanced use cases:
+
+```typescript
+import { grammar } from "cooklang-parse"
+
+const match = grammar.match(source)
+```
+
+## Example: Recipe with Frontmatter and Sections
 
 ```typescript
 const recipe = parseCooklang(`
 ---
 title: Sourdough Bread
-servings: 2
-prep_time: 30 minutes
+source: My grandmother
 ---
 
+>> servings: 2
+
 == Starter ==
-Mix @starter{100%g} and @water{100%g}
+Mix @starter{100%g} with @water{100%g}
 Let ferment for ~{8%hours}
 
 == Dough ==
 Combine @flour{500%g} and @water{325%g}
 Add @starter{200%g} and @salt{10%g}
-Knead in #mixing bowl for ~{10%minutes}
-`);
+Knead in #mixing bowl{} for ~kneading{10%minutes}
+`)
 
-console.log(recipe.metadata);
-// { title: 'Sourdough Bread', servings: 2, prep_time: '30 minutes' }
+recipe.metadata
+// { title: "Sourdough Bread", source: "My grandmother", servings: 2 }
 
-console.log(recipe.sections);
-// ['Starter', 'Dough']
+recipe.sections
+// ["Starter", "Dough"]
 
-console.log(recipe.steps.map(s => s.text));
-// ['Mix @starter{100%g} and @water{100%g}', 'Let ferment for ~{8%hours}', ...]
+recipe.ingredients.map(i => `${i.quantity} ${i.units} ${i.name}`.trim())
+// ["100 g starter", "100 g water", "500 g flour", ...]
 ```
 
 ## Development
 
 ```bash
-# Install dependencies
-bun install
-
-# Run tests
-bun test
-
-# Lint code
-bun run lint
-
-# Format code
-bun run format
+bun install          # Install dependencies
+bun test             # Run all 190 tests
+bun run build        # Bundle + emit declarations
+bun run typecheck    # Type-check without emitting
+bun run lint         # Lint with Biome
 ```
 
 ## License
 
-MIT
+[MIT](LICENSE)

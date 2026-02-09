@@ -26,9 +26,13 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .eslintcache
 .cache
 *.tsbuildinfo
+docs/.vitepress/cache
+docs/.vitepress/dist
 
-# IntelliJ based IDEs
+# IDEs and tools
 .idea
+.cursor
+.claude
 
 # Finder (MacOS) folder config
 .DS_Store

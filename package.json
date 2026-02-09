@@ -1,18 +1,42 @@
 {
   "name": "cooklang-parse",
   "version": "0.0.1",
-  "description": "A simple, type-safe Cooklang parser using Ohm",
-  "module": "src/index.ts",
+  "description": "A simple, type-safe Cooklang parser built with Ohm.js",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "grammars"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/briansunter/cooklang-parse.git"
+  },
+  "homepage": "https://github.com/briansunter/cooklang-parse#readme",
+  "bugs": {
+    "url": "https://github.com/briansunter/cooklang-parse/issues"
+  },
+  "author": "Brian Sunter",
+  "keywords": [
+    "cooklang",
+    "parser",
+    "recipe",
+    "cooking",
+    "ohm",
+    "peg"
+  ],
   "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target=node --format=esm && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",

@@ -1,0 +1,55 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  quality:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        timeout-minutes: 2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+        timeout-minutes: 3
+
+      - name: Install dependencies
+        run: bun install
+        timeout-minutes: 5
+
+      - name: Run linting
+        run: bun run lint
+        timeout-minutes: 3
+
+      - name: Run type checking
+        run: bun run typecheck
+        timeout-minutes: 3
+
+      - name: Run tests
+        run: bun test
+        timeout-minutes: 10
+
+      - name: Build package
+        run: bun run build
+        timeout-minutes: 3
+
+  release-please:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: node

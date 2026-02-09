@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parseCooklang, parseToAST } from '../src/index';
+import { parseCooklang } from '../src/index';
 
 test('parse simple recipe', () => {
   const source = `
@@ -11,19 +11,22 @@ Cook in #pan for ~{20%minutes}.
 
   expect(recipe.ingredients).toHaveLength(2);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'flour',
-    quantity: '250',
-    unit: 'g',
+    quantity: 250,
+    units: 'g',
     fixed: false,
   });
   expect(recipe.ingredients[1]).toEqual({
+    type: 'ingredient',
     name: 'eggs',
-    quantity: '3',
+    quantity: 3,
+    units: '',
     fixed: false,
   });
 
-  expect(recipe.cookware).toEqual(['pan']);
-  expect(recipe.timers).toEqual([{ quantity: '20', unit: 'minutes' }]);
+  expect(recipe.cookware).toEqual([{ type: 'cookware', name: 'pan', quantity: 1, units: '' }]);
+  expect(recipe.timers).toEqual([{ type: 'timer', name: '', quantity: 20, units: 'minutes' }]);
   expect(recipe.steps).toHaveLength(1);
 });
 
@@ -36,7 +39,7 @@ test('parse multi-word ingredients', () => {
   expect(recipe.ingredients[0]!.name).toBe('sea salt');
   expect(recipe.ingredients[1]!.name).toBe('olive oil');
 
-  expect(recipe.cookware).toEqual(['mixing bowl']);
+  expect(recipe.cookware).toEqual([{ type: 'cookware', name: 'mixing bowl', quantity: 1, units: '' }]);
 });
 
 test('parse recipe with metadata', () => {
@@ -91,29 +94,29 @@ test('parse timer with name', () => {
   const recipe = parseCooklang(source);
 
   expect(recipe.timers[0]).toEqual({
+    type: 'timer',
     name: 'rest',
-    quantity: '30',
-    unit: 'minutes',
+    quantity: 30,
+    units: 'minutes',
   });
 });
 
 test('parse fixed quantity ingredient', () => {
   const source = `Add =@salt{1%tsp} to taste.`;
 
-  const ast = parseToAST(source);
-  const ingredient = ast.steps[0]!.ingredients[0]!;
+  const recipe = parseCooklang(source);
 
-  expect(ingredient.fixed).toBe(true);
-  expect(ingredient.name).toBe('salt');
+  expect(recipe.ingredients[0]!.fixed).toBe(true);
+  expect(recipe.ingredients[0]!.name).toBe('salt');
 });
 
-test('parse inline comments', () => {
+test('parse inline comments are stripped from output', () => {
   const source = `Mix @flour{250%g}. -- This is a comment`;
 
-  const ast = parseToAST(source);
+  const recipe = parseCooklang(source);
 
-  expect(ast.steps[0]!.inlineComments).toHaveLength(1);
-  expect(ast.steps[0]!.inlineComments[0]!.text).toBe('This is a comment');
+  expect(recipe.steps).toHaveLength(1);
+  expect(recipe.steps[0]!.every(i => i.type !== 'text' || !i.value.includes('This is a comment'))).toBe(true);
 });
 
 test('parse empty recipe', () => {
@@ -137,10 +140,10 @@ test('full pancake recipe', async () => {
   expect(recipe.ingredients.some(i => i.name === 'flour')).toBe(true);
 
   expect(recipe.cookware.length).toBeGreaterThan(0);
-  expect(recipe.cookware.includes('bowl')).toBe(true);
+  expect(recipe.cookware.some(c => c.name === 'bowl')).toBe(true);
 
   expect(recipe.timers.length).toBeGreaterThan(0);
-  expect(recipe.timers[0]!.unit).toBe('minutes');
+  expect(recipe.timers[0]!.units).toBe('minutes');
 
   expect(recipe.steps.length).toBeGreaterThan(0);
 });
@@ -152,15 +155,17 @@ test('parse ingredient with unit', () => {
 
   expect(recipe.ingredients).toHaveLength(2);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'onion',
-    quantity: '1',
-    unit: 'diced',
+    quantity: 1,
+    units: 'diced',
     fixed: false,
   });
   expect(recipe.ingredients[1]).toEqual({
+    type: 'ingredient',
     name: 'garlic',
-    quantity: '3',
-    unit: 'cloves',
+    quantity: 3,
+    units: 'cloves',
     fixed: false,
   });
 });
@@ -172,10 +177,10 @@ Mix @flour{250%g}.
 Add @eggs{3}.
 `;
 
-  const ast = parseToAST(source);
+  const recipe = parseCooklang(source);
 
-  expect(ast.errors).toHaveLength(0);
-  expect(ast.steps).toHaveLength(2);
+  expect(recipe.errors).toHaveLength(0);
+  expect(recipe.steps).toHaveLength(2);
 });
 
 test('parse multiple timers in one step', () => {
@@ -184,8 +189,8 @@ test('parse multiple timers in one step', () => {
   const recipe = parseCooklang(source);
 
   expect(recipe.timers).toHaveLength(2);
-  expect(recipe.timers[0]).toEqual({ quantity: '10', unit: 'minutes' });
-  expect(recipe.timers[1]).toEqual({ name: 'rest', quantity: '5', unit: 'minutes' });
+  expect(recipe.timers[0]).toEqual({ type: 'timer', name: '', quantity: 10, units: 'minutes' });
+  expect(recipe.timers[1]).toEqual({ type: 'timer', name: 'rest', quantity: 5, units: 'minutes' });
 });
 
 test('parse metadata with object', () => {
@@ -224,8 +229,8 @@ Pour into #pan and then back into #bowl.
   const recipe = parseCooklang(source);
 
   expect(recipe.cookware).toHaveLength(2);
-  expect(recipe.cookware).toContain('bowl');
-  expect(recipe.cookware).toContain('pan');
+  expect(recipe.cookware.some(c => c.name === 'bowl')).toBe(true);
+  expect(recipe.cookware.some(c => c.name === 'pan')).toBe(true);
 });
 
 test('timers in multiple steps are deduplicated', () => {
@@ -238,7 +243,7 @@ Rest for ~{10%minutes}.
   const recipe = parseCooklang(source);
 
   expect(recipe.timers).toHaveLength(1);
-  expect(recipe.timers[0]).toEqual({ quantity: '10', unit: 'minutes' });
+  expect(recipe.timers[0]).toEqual({ type: 'timer', name: '', quantity: 10, units: 'minutes' });
 });
 
 test('grammar export is an Ohm grammar object', () => {
@@ -268,23 +273,26 @@ test('recipe with only whitespace returns empty', () => {
   expect(recipe.steps).toHaveLength(0);
 });
 
-test('step text includes full content', () => {
+test('step items include full content', () => {
   const source = `Mix @flour{250%g} and @eggs{3} in the #bowl.`;
 
   const recipe = parseCooklang(source);
 
   expect(recipe.steps).toHaveLength(1);
-  expect(recipe.steps[0]!.text).toContain('Mix');
-  expect(recipe.steps[0]!.text).toContain('in the');
+  const textItems = recipe.steps[0]!.filter(i => i.type === 'text');
+  expect(textItems.some(t => t.type === 'text' && t.value.includes('Mix'))).toBe(true);
+  expect(textItems.some(t => t.type === 'text' && t.value.includes('in the'))).toBe(true);
 });
 
-test('inline comments appear in simplified step', () => {
+test('inline comments are stripped from steps', () => {
   const source = `Mix @flour{250%g}. -- Do not overmix`;
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.steps[0]!.inlineComments).toHaveLength(1);
-  expect(recipe.steps[0]!.inlineComments[0]).toBe('Do not overmix');
+  expect(recipe.steps).toHaveLength(1);
+  // Inline comments are stripped from public output
+  const textItems = recipe.steps[0]!.filter(i => i.type === 'text');
+  expect(textItems.some(t => t.type === 'text' && t.value.includes('Mix'))).toBe(true);
 });
 
 test('metadata with boolean values', () => {
@@ -363,7 +371,7 @@ Serve hot with =@garnish{1%tbsp} of fresh herbs.
   expect(recipe.ingredients.some(i => i.name === 'garlic')).toBe(true);
   expect(recipe.ingredients.some(i => i.name === 'tomatoes')).toBe(true);
   expect(recipe.ingredients.some(i => i.name === 'garnish' && i.fixed)).toBe(true);
-  expect(recipe.cookware).toContain('large pan');
+  expect(recipe.cookware.some(c => c.name === 'large pan')).toBe(true);
   expect(recipe.timers.length).toBeGreaterThanOrEqual(1);
   expect(recipe.timers.some(t => t.name === 'simmer')).toBe(true);
   expect(recipe.steps.length).toBeGreaterThanOrEqual(2);
@@ -375,7 +383,7 @@ test('parse multiword cookware', () => {
   const recipe = parseCooklang(source);
 
   expect(recipe.cookware).toHaveLength(1);
-  expect(recipe.cookware[0]).toBe('frying pan');
+  expect(recipe.cookware[0]!.name).toBe('frying pan');
 });
 
 test('parse timer without unit', () => {
@@ -384,8 +392,8 @@ test('parse timer without unit', () => {
   const recipe = parseCooklang(source);
 
   expect(recipe.timers).toHaveLength(1);
-  expect(recipe.timers[0]!.quantity).toBe('5');
-  expect(recipe.timers[0]!.unit).toBeUndefined();
+  expect(recipe.timers[0]!.quantity).toBe(5);
+  expect(recipe.timers[0]!.units).toBe('');
 });
 
 test('parse multiple notes in succession', () => {
@@ -412,8 +420,8 @@ test('parse empty ingredient amount braces', () => {
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]!.name).toBe('salt');
-  expect(recipe.ingredients[0]!.quantity).toBeUndefined();
-  expect(recipe.ingredients[0]!.unit).toBeUndefined();
+  expect(recipe.ingredients[0]!.quantity).toBe('some');
+  expect(recipe.ingredients[0]!.units).toBe('');
 });
 
 test('parse ingredient with only quantity no unit', () => {
@@ -421,30 +429,30 @@ test('parse ingredient with only quantity no unit', () => {
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.ingredients[0]!.quantity).toBe('3');
-  expect(recipe.ingredients[0]!.unit).toBeUndefined();
-  expect(recipe.ingredients[1]!.quantity).toBe('500');
-  expect(recipe.ingredients[1]!.unit).toBe('ml');
+  expect(recipe.ingredients[0]!.quantity).toBe(3);
+  expect(recipe.ingredients[0]!.units).toBe('');
+  expect(recipe.ingredients[1]!.quantity).toBe(500);
+  expect(recipe.ingredients[1]!.units).toBe('ml');
 });
 
 test('step contains cookware references', () => {
   const source = `Mix in #bowl and pour into #pan.`;
 
-  const ast = parseToAST(source);
+  const recipe = parseCooklang(source);
 
-  expect(ast.steps[0]!.cookware).toHaveLength(2);
-  expect(ast.steps[0]!.cookware[0]!.name).toBe('bowl');
-  expect(ast.steps[0]!.cookware[1]!.name).toBe('pan');
+  expect(recipe.cookware).toHaveLength(2);
+  expect(recipe.cookware[0]!.name).toBe('bowl');
+  expect(recipe.cookware[1]!.name).toBe('pan');
 });
 
 test('step contains timer references', () => {
   const source = `Cook for ~{10%minutes} then rest for ~rest{5%minutes}.`;
 
-  const ast = parseToAST(source);
+  const recipe = parseCooklang(source);
 
-  expect(ast.steps[0]!.timers).toHaveLength(2);
-  expect(ast.steps[0]!.timers[0]!.quantity).toBe('10');
-  expect(ast.steps[0]!.timers[1]!.name).toBe('rest');
+  expect(recipe.timers).toHaveLength(2);
+  expect(recipe.timers[0]!.quantity).toBe(10);
+  expect(recipe.timers[1]!.name).toBe('rest');
 });
 
 test('parse single word ingredient', () => {
@@ -462,7 +470,7 @@ test('parse single word cookware', () => {
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.cookware).toEqual(['pan', 'spatula']);
+  expect(recipe.cookware.map(c => c.name)).toEqual(['pan', 'spatula']);
 });
 
 test('recipe with multiple steps', () => {
@@ -503,25 +511,14 @@ test('parse recipe with no timers', () => {
   expect(recipe.timers).toHaveLength(0);
 });
 
-test('step preserves original text', () => {
+test('step preserves original text in items', () => {
   const source = `Carefully fold in the whipped cream.`;
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.steps[0]!.text).toBe('Carefully fold in the whipped cream.');
-});
-
-test('parseToAST returns full AST structure', () => {
-  const source = `Mix @flour{250%g}.`;
-
-  const ast = parseToAST(source);
-
-  expect(ast.type).toBe('recipe');
-  expect(ast.metadata).toBeNull();
-  expect(ast.sections).toEqual([]);
-  expect(ast.steps).toHaveLength(1);
-  expect(ast.notes).toEqual([]);
-  expect(ast.errors).toEqual([]);
+  expect(recipe.steps[0]).toEqual([
+    { type: 'text', value: 'Carefully fold in the whipped cream.' },
+  ]);
 });
 
 test('parse recipe with multiple sections', () => {
@@ -588,7 +585,8 @@ Mix @flour{250%g}.
 
   expect(recipe.metadata.title).toBe('Pancakes');
   expect(recipe.metadata.servings).toBe(4);
-  expect(recipe.steps[0]!.text).toContain('Mix');
+  const textItems = recipe.steps[0]!.filter(i => i.type === 'text');
+  expect(textItems.some(t => t.type === 'text' && t.value.includes('Mix'))).toBe(true);
 });
 
 test('metadata directives in recipe body are extracted', () => {
@@ -602,8 +600,10 @@ Step two.
 
   expect(recipe.metadata.servings).toBe(2);
   expect(recipe.steps).toHaveLength(2);
-  expect(recipe.steps[0]!.text).toBe('Step one.');
-  expect(recipe.steps[1]!.text).toBe('Step two.');
+  const step1Text = recipe.steps[0]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');
+  const step2Text = recipe.steps[1]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');
+  expect(step1Text).toBe('Step one.');
+  expect(step2Text).toBe('Step two.');
 });
 
 test('parse single-equals section syntax', () => {
@@ -644,7 +644,7 @@ test('parse single-word timer without braces', () => {
   const recipe = parseCooklang(source);
 
   expect(recipe.errors.some(e => e.severity === 'error')).toBe(false);
-  expect(recipe.timers).toEqual([{ name: 'rest', quantity: '' }]);
+  expect(recipe.timers).toEqual([{ type: 'timer', name: 'rest', quantity: '', units: '' }]);
 });
 
 test('parse ingredient with preparation suffix', () => {
@@ -654,9 +654,10 @@ test('parse ingredient with preparation suffix', () => {
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'flour',
-    quantity: '100',
-    unit: 'g',
+    quantity: 100,
+    units: 'g',
     preparation: 'sifted',
     fixed: false,
   });
@@ -669,7 +670,10 @@ test('parse ingredient with preparation and no amount', () => {
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'butter',
+    quantity: 'some',
+    units: '',
     preparation: 'softened',
     fixed: false,
   });
@@ -682,9 +686,10 @@ test('parse fixed quantity inside braces', () => {
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'salt',
-    quantity: '1',
-    unit: 'tsp',
+    quantity: 1,
+    units: 'tsp',
     fixed: true,
   });
 });
@@ -696,42 +701,49 @@ test('parse fixed quantity inside braces without unit', () => {
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'salt',
-    quantity: '2',
+    quantity: 2,
+    units: '',
     fixed: true,
   });
 });
 
 test('parse extended ingredient modifier syntax', () => {
-  const source = `Add @@tomato sauce{200%ml}, @&flour{300%g}, and @white wine|wine{}.`; 
+  const source = `Add @@tomato sauce{200%ml}, @&flour{300%g}, and @white wine|wine{}.`;
 
   const recipe = parseCooklang(source);
 
   expect(recipe.ingredients).toHaveLength(3);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'tomato sauce',
-    quantity: '200',
-    unit: 'ml',
+    quantity: 200,
+    units: 'ml',
     fixed: false,
   });
   expect(recipe.ingredients[1]).toEqual({
+    type: 'ingredient',
     name: 'flour',
-    quantity: '300',
-    unit: 'g',
+    quantity: 300,
+    units: 'g',
     fixed: false,
   });
   expect(recipe.ingredients[2]).toEqual({
+    type: 'ingredient',
     name: 'white wine',
+    quantity: 'some',
+    units: '',
     fixed: false,
   });
 });
 
-test('grammar parse error returns error in AST', () => {
-  const ast = parseToAST('=');
+test('grammar parse error returns error', () => {
+  const recipe = parseCooklang('=');
 
-  expect(ast.errors).toHaveLength(1);
-  expect(ast.errors[0]!.severity).toBe('error');
-  expect(ast.steps).toHaveLength(0);
+  expect(recipe.errors).toHaveLength(1);
+  expect(recipe.errors[0]!.severity).toBe('error');
+  expect(recipe.steps).toHaveLength(0);
 });
 
 test('both directives and frontmatter metadata merge', () => {
@@ -742,11 +754,10 @@ title: Pancakes
 Mix @flour{250%g}.
 `;
 
-  const ast = parseToAST(source);
+  const recipe = parseCooklang(source);
 
-  expect(ast.metadata).not.toBeNull();
-  expect(ast.metadata!.data.title).toBe('Pancakes');
-  expect(ast.metadata!.data.author).toBe('Chef');
+  expect(recipe.metadata.title).toBe('Pancakes');
+  expect(recipe.metadata.author).toBe('Chef');
 });
 
 test('non-object YAML frontmatter produces warning', () => {
@@ -794,19 +805,125 @@ test('space-separated ingredient amount without percent', () => {
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]).toEqual({
+    type: 'ingredient',
     name: 'flour',
-    quantity: '2',
-    unit: 'cups',
+    quantity: 2,
+    units: 'cups',
     fixed: false,
   });
 });
 
-test('non-numeric multi-word amount treated as quantity', () => {
+test('non-numeric multi-word amount treated as quantity and unit', () => {
   const source = `Add @flour{some amount}.`;
 
   const recipe = parseCooklang(source);
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]!.name).toBe('flour');
-  expect(recipe.ingredients[0]!.quantity).toBe('some amount');
+  expect(recipe.ingredients[0]!.quantity).toBe('some');
+  expect(recipe.ingredients[0]!.units).toBe('amount');
+});
+
+// --- Error handling tests ---
+
+test('parse error uses shortMessage without verbose formatting', () => {
+  const recipe = parseCooklang('=');
+
+  expect(recipe.errors).toHaveLength(1);
+  const err = recipe.errors[0]!;
+  expect(err.severity).toBe('error');
+  expect(err.shortMessage).toBeDefined();
+  // shortMessage should not contain position prefix or ASCII art
+  expect(err.shortMessage ?? '').not.toMatch(/^Line \d+/);
+  expect(err.shortMessage ?? '').not.toContain('|');
+  // message should be the clean short message
+  expect(err.message).toBe(err.shortMessage!);
+});
+
+test('parse error offset is correct with directives', () => {
+  const source = `>> title: Pancakes
+>> servings: 4
+=`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.errors).toHaveLength(1);
+  const err = recipe.errors[0]!;
+  expect(err.severity).toBe('error');
+  // Offset should point into the original source near the `=` (not 0 or 2)
+  expect(err.position.offset).toBeGreaterThanOrEqual(source.lastIndexOf('='));
+  expect(err.position.offset).toBeLessThanOrEqual(source.length);
+});
+
+test('YAML error has non-zero offset based on actual position in source', () => {
+  const source = `---
+title: Test Recipe
+tags: [test
+invalid yaml here
+---
+
+@eggs{2} and @butter{1%tbsp}
+`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.errors.some(e => e.severity === 'warning' && /yaml/i.test(e.message))).toBe(true);
+  const yamlError = recipe.errors.find(e => /yaml/i.test(e.message))!;
+  // Offset should be > 0 since the error is inside the YAML block, not at the start of the file
+  expect(yamlError.position.offset).toBeGreaterThan(0);
+});
+
+test('non-object YAML frontmatter reports what type was found', () => {
+  const source = `---
+- item1
+- item2
+---
+Mix @flour{250%g}.
+`;
+
+  const recipe = parseCooklang(source);
+
+  const warning = recipe.errors.find(e => e.severity === 'warning')!;
+  expect(warning.message).toContain('got an array');
+});
+
+test('string YAML frontmatter reports what type was found', () => {
+  const source = `---
+just a plain string
+---
+Mix @flour{250%g}.
+`;
+
+  const recipe = parseCooklang(source);
+
+  const warning = recipe.errors.find(e => e.severity === 'warning')!;
+  expect(warning.message).toContain('got a string');
+});
+
+test('unclosed brace after ingredient produces warning', () => {
+  const source = `Add @flour then {some text.`;
+
+  const recipe = parseCooklang(source);
+
+  const warnings = recipe.errors.filter(e => e.severity === 'warning');
+  expect(warnings.length).toBeGreaterThan(0);
+  expect(warnings.some(w => /unclosed brace/i.test(w.message))).toBe(true);
+});
+
+test('unclosed brace after cookware produces warning', () => {
+  const source = `Use #pan then {some text.`;
+
+  const recipe = parseCooklang(source);
+
+  const warnings = recipe.errors.filter(e => e.severity === 'warning');
+  expect(warnings.length).toBeGreaterThan(0);
+  expect(warnings.some(w => /unclosed brace/i.test(w.message))).toBe(true);
+});
+
+test('properly closed braces do not produce warnings', () => {
+  const source = `Add @flour{250%g} and @eggs{3}.`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.errors).toHaveLength(0);
 });

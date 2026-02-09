@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test"
-import { parseCooklang, parseToAST } from "../src/index"
+import { parseCooklang } from "../src/index"
 
 test("spec parity: comment-only recipe is empty", () => {
   const source = `-- "empty" recipe
 
    -- with spaces
 
--- that should actually be empty 
-    -- and not produce empty steps   
+-- that should actually be empty
+    -- and not produce empty steps
 
 [- not even this -]
 `
@@ -26,8 +26,8 @@ test("spec parity: empty section content with only comments", () => {
 
    -- with spaces
 
--- that should actually be empty 
-    -- and not produce empty steps   
+-- that should actually be empty
+    -- and not produce empty steps
 
 [- not even this -]
 `
@@ -41,15 +41,17 @@ test("spec parity: empty section content with only comments", () => {
 
 test("spec parity: whitespace line separates steps", () => {
   const source = `a step
-                 
+
 another
 `
 
   const recipe = parseCooklang(source)
 
   expect(recipe.steps).toHaveLength(2)
-  expect(recipe.steps[0]?.text).toBe("a step")
-  expect(recipe.steps[1]?.text).toBe("another")
+  const step1Text = recipe.steps[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  const step2Text = recipe.steps[1]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  expect(step1Text).toBe("a step")
+  expect(step2Text).toBe("another")
 })
 
 test("spec parity: metadata lines split neighboring steps", () => {
@@ -62,7 +64,10 @@ another step
   const recipe = parseCooklang(source)
 
   expect(recipe.metadata.meta).toBe("val")
-  expect(recipe.steps.map(s => s.text)).toEqual(["a step", "another step"])
+  const stepTexts = recipe.steps.map(s =>
+    s.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  )
+  expect(stepTexts).toEqual(["a step", "another step"])
   expect(recipe.sections).toEqual(["section"])
 })
 
@@ -78,7 +83,10 @@ step
 
   expect(recipe.metadata["[mode]"]).toBe("steps")
   expect(recipe.sections).toEqual(["section"])
-  expect(recipe.steps.map(s => s.text)).toEqual(["step"])
+  const stepTexts = recipe.steps.map(s =>
+    s.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  )
+  expect(stepTexts).toEqual(["step"])
 })
 
 test("spec parity: valid YAML frontmatter parses", () => {
@@ -102,29 +110,27 @@ This is a test recipe with valid YAML frontmatter.
 test("spec parity: preparation suffix on ingredient", () => {
   const source = `Add @flour{100%g}(sifted) to bowl.\n`
 
-  const ast = parseToAST(source)
-  const ingredient = ast.steps[0]!.ingredients[0]!
+  const recipe = parseCooklang(source)
 
-  expect(ingredient.name).toBe("flour")
-  expect(ingredient.quantity).toBe("100")
-  expect(ingredient.unit).toBe("g")
-  expect(ingredient.preparation).toBe("sifted")
+  expect(recipe.ingredients[0]!.name).toBe("flour")
+  expect(recipe.ingredients[0]!.quantity).toBe(100)
+  expect(recipe.ingredients[0]!.units).toBe("g")
+  expect(recipe.ingredients[0]!.preparation).toBe("sifted")
 })
 
 test("spec parity: fixed quantity inside braces", () => {
   const source = `Add @salt{=1%tsp} to taste.\n`
 
-  const ast = parseToAST(source)
-  const ingredient = ast.steps[0]!.ingredients[0]!
+  const recipe = parseCooklang(source)
 
-  expect(ingredient.name).toBe("salt")
-  expect(ingredient.quantity).toBe("1")
-  expect(ingredient.unit).toBe("tsp")
-  expect(ingredient.fixed).toBe(true)
+  expect(recipe.ingredients[0]!.name).toBe("salt")
+  expect(recipe.ingredients[0]!.quantity).toBe(1)
+  expect(recipe.ingredients[0]!.units).toBe("tsp")
+  expect(recipe.ingredients[0]!.fixed).toBe(true)
 })
 
 test("spec parity: canonical format for fixed quantity", () => {
-  const { parseToCanonical } = require("../src/canonicalConverter")
+  const { parseToCanonical } = require("./canonical-helper")
   const result = parseToCanonical("Add @salt{=1%tsp} to taste.\n")
 
   expect(result.steps[0]).toEqual([
@@ -140,8 +146,8 @@ test("spec parity: comment requires space after dashes", () => {
   const recipe = parseCooklang(source)
 
   expect(recipe.steps).toHaveLength(1)
-  expect(recipe.steps[0]!.text).toContain("text--more text")
-  expect(recipe.steps[0]!.inlineComments).toHaveLength(0)
+  const textContent = recipe.steps[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  expect(textContent).toContain("text--more text")
 })
 
 test("spec parity: invalid YAML frontmatter becomes warning and is ignored", () => {
