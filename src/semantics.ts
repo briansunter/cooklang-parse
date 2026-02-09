@@ -51,14 +51,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return v != null && typeof v === "object" && !Array.isArray(v)
 }
 
-function parseYamlFrontmatter(
-  content: string,
-  yamlStartOffset: number,
-): {
-  data: Record<string, unknown>
-  warning?: string
-  position?: SourcePosition
-} {
+function parseYamlFrontmatter(content: string, yamlStartOffset: number): YamlParseResult {
   try {
     const parsed = YAML.parse(content)
     if (parsed == null) return { data: {} }
@@ -91,14 +84,11 @@ function parseYamlFrontmatter(
 }
 
 function computeYamlOffset(content: string, line: number, col: number): number {
-  return (
-    content
-      .split("\n")
-      .slice(0, line - 1)
-      .reduce((sum, l) => sum + l.length + 1, 0) +
-    col -
-    1
-  )
+  const lineOffset = content
+    .split("\n")
+    .slice(0, line - 1)
+    .reduce((sum, l) => sum + l.length + 1, 0)
+  return lineOffset + col - 1
 }
 
 const directiveRegex = /^\s*>>\s*([^:]+?)\s*:\s*(.*)\s*$/
@@ -170,21 +160,22 @@ function mapOffset(off: number, map: number[]): number {
 }
 
 function parseComponent(raw: string): { name: string; amountContent?: string } {
-  const t = raw.trim()
-  const i = t.endsWith("}") ? t.lastIndexOf("{") : -1
-  const name = (i === -1 ? t : t.slice(0, i).trim()).replace(/\|.*/, "").trim()
-  if (i === -1) return { name }
-  return { name, amountContent: t.slice(i + 1, -1) }
+  const trimmed = raw.trim()
+  const braceStart = trimmed.endsWith("}") ? trimmed.lastIndexOf("{") : -1
+  const rawName = braceStart === -1 ? trimmed : trimmed.slice(0, braceStart).trim()
+  const name = rawName.replace(/\|.*/, "").trim()
+  if (braceStart === -1) return { name }
+  return { name, amountContent: trimmed.slice(braceStart + 1, -1) }
 }
 
 function convertIngredient(token: string): RecipeIngredient {
-  const t = token.trim()
-  const raw = t.replace(/^=\s*/, "").replace(/^[@&?+-]+/, "")
-  const prepMatch = raw.match(/\(([^)]*)\)$/)
+  const trimmed = token.trim()
+  const stripped = trimmed.replace(/^=\s*/, "").replace(/^[@&?+-]+/, "")
+  const prepMatch = stripped.match(/\(([^)]*)\)$/)
   const preparation = prepMatch?.[1] || undefined
-  const body = prepMatch ? raw.slice(0, prepMatch.index).trimEnd() : raw
+  const body = prepMatch ? stripped.slice(0, prepMatch.index).trimEnd() : stripped
   const { name, amountContent } = parseComponent(body)
-  const fixed = t.startsWith("=") || !!amountContent?.trimStart().startsWith("=")
+  const fixed = trimmed.startsWith("=") || amountContent?.trimStart().startsWith("=") === true
   const content = amountContent?.trim()
   const amt = content ? parseAmount(content) : { quantity: "some", units: "" }
   return { type: "ingredient", name, ...amt, fixed, preparation }
@@ -224,14 +215,26 @@ function collectUnique<T extends RecipeStepItem>(
   key: (item: T) => string,
 ): T[] {
   const seen = new Set<string>()
-  return steps
-    .flat()
-    .filter((item): item is T => item.type === type)
-    .filter(item => !seen.has(key(item)) && !!seen.add(key(item)))
+  const result: T[] = []
+  for (const item of steps.flat()) {
+    if (item.type !== type) continue
+    const k = key(item as T)
+    if (!seen.has(k)) {
+      seen.add(k)
+      result.push(item as T)
+    }
+  }
+  return result
 }
 
 function isASTNode(n: unknown): n is { type: string; name: string; text: string } {
   return isRecord(n) && typeof n.type === "string"
+}
+
+interface YamlParseResult {
+  data: Record<string, unknown>
+  warning?: string
+  position?: SourcePosition
 }
 
 interface SemanticResult {
