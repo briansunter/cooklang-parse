@@ -1,10 +1,9 @@
 /**
  * Convert AST to canonical format matching the official Cooklang spec test output.
- * Replaces the old canonical grammar + canonical semantics pipeline.
  */
 
-import { parseToAST } from "./semantics.js"
-import type { Recipe, StepItem } from "./types.js"
+import { parseToAST } from "./semantics"
+import type { Recipe, StepItem } from "./types"
 
 type CanonicalValue = string | number
 
@@ -45,126 +44,73 @@ export interface CanonicalResult {
   steps: CanonicalStepItem[][]
 }
 
-/**
- * Parse quantity string - convert fractions to numbers
- */
+function sortKeys<T>(obj: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)))
+}
+
 function parseQuantity(qty: string): string | number {
   const trimmedQty = qty.trim()
   if (!trimmedQty) return ""
-
-  if (/[a-zA-Z]/.test(trimmedQty)) {
-    return trimmedQty
-  }
+  if (/[a-zA-Z]/.test(trimmedQty)) return trimmedQty
 
   const qtyNoSpaces = trimmedQty.replace(/\s+/g, "")
 
   const fractionMatch = qtyNoSpaces.match(/^(\d+)\/(\d+)$/)
-  if (fractionMatch) {
-    const numStr = fractionMatch[1]
-    const denStr = fractionMatch[2]
-
-    if (!numStr || !denStr) {
-      return trimmedQty
-    }
-
-    if (numStr.startsWith("0") && numStr.length > 1) {
-      return trimmedQty
-    }
-
-    const num = parseFloat(numStr)
-    const den = parseFloat(denStr)
-    if (!Number.isNaN(num) && !Number.isNaN(den) && den !== 0) {
-      return num / den
-    }
+  if (fractionMatch?.[1] && fractionMatch[2]) {
+    if (fractionMatch[1].startsWith("0") && fractionMatch[1].length > 1) return trimmedQty
+    const num = parseFloat(fractionMatch[1])
+    const den = parseFloat(fractionMatch[2])
+    if (!Number.isNaN(num) && !Number.isNaN(den) && den !== 0) return num / den
   }
 
   const asNum = parseFloat(qtyNoSpaces)
-  if (!Number.isNaN(asNum)) {
-    return asNum
-  }
+  if (!Number.isNaN(asNum)) return asNum
 
   return trimmedQty
 }
 
-/**
- * Parse amount content (e.g., "3%items" or "250% g" or "1 / 2 %cup")
- */
 function parseAmount(content: string): { quantity: string | number; units: string } {
-  let trimmedContent = content.trim()
-
-  if (trimmedContent.startsWith("=")) {
-    trimmedContent = trimmedContent.slice(1).trimStart()
+  let trimmed = content.trim()
+  if (trimmed.startsWith("=")) {
+    trimmed = trimmed.slice(1).trimStart()
   }
 
-  const lastPercentIndex = trimmedContent.lastIndexOf("%")
-  if (lastPercentIndex !== -1) {
-    const qtyStr = trimmedContent.slice(0, lastPercentIndex).trim()
-    const unitsStr = trimmedContent.slice(lastPercentIndex + 1).trim()
+  const lastPercent = trimmed.lastIndexOf("%")
+  if (lastPercent !== -1) {
     return {
-      quantity: parseQuantity(qtyStr),
-      units: unitsStr,
+      quantity: parseQuantity(trimmed.slice(0, lastPercent).trim()),
+      units: trimmed.slice(lastPercent + 1).trim(),
     }
   }
 
-  const spaceMatch = trimmedContent.match(/^(\S+)\s+(\S{3,}.*)$/)
-  if (spaceMatch) {
-    const qtyStr = spaceMatch[1]
-    const unitsStr = spaceMatch[2]
-
-    if (!qtyStr || !unitsStr) {
-      return {
-        quantity: parseQuantity(trimmedContent),
-        units: "",
-      }
-    }
-
+  const spaceMatch = trimmed.match(/^(\S+)\s+(\S{3,}.*)$/)
+  if (spaceMatch?.[1] && spaceMatch[2]) {
     return {
-      quantity: parseQuantity(qtyStr),
-      units: unitsStr.trim(),
+      quantity: parseQuantity(spaceMatch[1]),
+      units: spaceMatch[2].trim(),
     }
   }
 
-  return {
-    quantity: parseQuantity(trimmedContent),
-    units: "",
-  }
+  return { quantity: parseQuantity(trimmed), units: "" }
 }
 
-/**
- * Parse cookware quantity
- */
-function parseCookwareAmount(content: string): number | string {
-  const trimmedContent = content.trim()
-  const asNum = parseFloat(trimmedContent)
-  if (!Number.isNaN(asNum)) {
-    return asNum
-  }
-  return trimmedContent
-}
-
-/**
- * Merge consecutive text items with spaces between them (soft breaks).
- */
 function mergeConsecutiveTexts(items: CanonicalStepItem[]): CanonicalStepItem[] {
   const result: CanonicalStepItem[] = []
   let currentText = ""
-  let lastItemWasText = false
+  let lastWasText = false
 
   for (const item of items) {
     if (item.type === "text") {
-      if (lastItemWasText) {
-        currentText += " "
-      }
+      if (lastWasText) currentText += " "
       currentText += item.value
-      lastItemWasText = true
+      lastWasText = true
     } else {
       if (currentText) {
         result.push({ type: "text", value: currentText })
         currentText = ""
-        lastItemWasText = false
       }
       result.push(item)
-      lastItemWasText = false
+      lastWasText = false
     }
   }
 
@@ -175,133 +121,69 @@ function mergeConsecutiveTexts(items: CanonicalStepItem[]): CanonicalStepItem[] 
   return result
 }
 
-/**
- * Convert a single AST StepItem to canonical format
- */
 function convertItem(item: StepItem): CanonicalStepItem | null {
   switch (item.type) {
     case "text":
       return { type: "text", value: item.value }
 
     case "ingredient": {
-      if (item.rawAmount === undefined || item.rawAmount === null) {
-        return {
-          name: item.name,
-          quantity: "some" as CanonicalValue,
-          type: "ingredient",
-          units: "",
-        }
-      }
-
-      const content = item.rawAmount.trim()
-      if (!content) {
-        return {
-          name: item.name,
-          quantity: "some" as CanonicalValue,
-          type: "ingredient",
-          units: "",
-        }
-      }
-
+      const content = item.rawAmount?.trim()
+      if (!content) return { type: "ingredient", name: item.name, quantity: "some", units: "" }
       const parsed = parseAmount(content)
-      return {
-        name: item.name,
-        quantity: parsed.quantity,
-        type: "ingredient",
-        units: parsed.units,
-      }
+      return { type: "ingredient", name: item.name, quantity: parsed.quantity, units: parsed.units }
     }
 
     case "cookware": {
-      if (!item.quantity) {
-        return {
-          name: item.name,
-          quantity: 1 as CanonicalValue,
-          type: "cookware",
-          units: "",
-        }
+      let quantity: CanonicalValue = 1
+      if (item.quantity) {
+        const asNum = parseFloat(item.quantity.trim())
+        quantity = Number.isNaN(asNum) ? item.quantity.trim() : asNum
       }
-
-      return {
-        name: item.name,
-        quantity: parseCookwareAmount(item.quantity),
-        type: "cookware",
-        units: "",
-      }
+      return { type: "cookware", name: item.name, quantity, units: "" }
     }
 
     case "timer": {
-      if (item.rawAmount === undefined || item.rawAmount === null) {
-        return {
-          name: item.name ?? "",
-          quantity: "" as CanonicalValue,
-          type: "timer",
-          units: "",
-        }
-      }
-
+      if (item.rawAmount == null)
+        return { type: "timer", name: item.name ?? "", quantity: "", units: "" }
       const parsed = parseAmount(item.rawAmount)
       return {
+        type: "timer",
         name: item.name ?? "",
         quantity: parsed.quantity,
-        type: "timer",
         units: parsed.units,
       }
     }
   }
 }
 
-/**
- * Convert AST recipe to canonical format
- */
 export function convertToCanonical(
   ast: Recipe,
   directiveMetadata: Record<string, string>,
 ): CanonicalResult {
-  // Merge frontmatter metadata with directive metadata (all as strings)
   const frontmatterMeta: Record<string, string> = {}
   if (ast.metadata?.data) {
     for (const [key, value] of Object.entries(ast.metadata.data)) {
-      // Only include frontmatter keys (not directive metadata which gets merged separately)
       frontmatterMeta[key] = String(value)
     }
   }
 
-  const mergedMetadata = { ...frontmatterMeta, ...directiveMetadata }
+  const metadata = sortKeys({ ...frontmatterMeta, ...directiveMetadata })
 
-  // Sort keys alphabetically (Rust BTreeMap order)
-  const sortedMetadata: Record<string, string> = {}
-  for (const key of Object.keys(mergedMetadata).sort()) {
-    sortedMetadata[key] = mergedMetadata[key] as string
-  }
-
-  // Convert steps
   const steps: CanonicalStepItem[][] = []
   for (const step of ast.steps) {
-    // Convert each step's ordered items to canonical format
-    // Multi-line steps need items from each line treated separately for soft-break merging
     const canonicalItems: CanonicalStepItem[] = []
-
     for (const item of step.items) {
       const converted = convertItem(item)
-      if (converted) {
-        canonicalItems.push(converted)
-      }
+      if (converted) canonicalItems.push(converted)
     }
-
     if (canonicalItems.length > 0) {
       steps.push(mergeConsecutiveTexts(canonicalItems))
     }
   }
 
-  return { metadata: sortedMetadata, steps }
+  return { metadata, steps }
 }
 
-/**
- * Extract leading >> key: value metadata directives as raw strings.
- * Only extracts directives from the top of the file, stopping at the first non-directive line.
- * This matches the Rust reference behavior where directives precede recipe content.
- */
 function extractLeadingDirectives(source: string): {
   metadata: Record<string, string>
   body: string
@@ -322,34 +204,16 @@ function extractLeadingDirectives(source: string): {
     directiveCount++
   }
 
-  if (directiveCount === 0) {
-    return { metadata: {}, body: source }
-  }
-
-  // Sort keys alphabetically (Rust BTreeMap order)
-  const sortedMetadata: Record<string, string> = {}
-  for (const key of Object.keys(metadata).sort()) {
-    sortedMetadata[key] = metadata[key] as string
-  }
+  if (directiveCount === 0) return { metadata: {}, body: source }
 
   return {
-    metadata: sortedMetadata,
+    metadata: sortKeys(metadata),
     body: lines.slice(directiveCount).join("\n"),
   }
 }
 
-/**
- * Parse Cooklang source directly to canonical format.
- * Extracts leading directives separately, then parses the body with the main parser.
- */
 export function parseToCanonical(source: string): CanonicalResult {
-  // Extract leading directives as raw strings (canonical format needs string values)
   const { metadata: directives, body } = extractLeadingDirectives(source)
-
-  // Parse the body (without leading directives) through the main AST pipeline
   const ast = parseToAST(body)
-
-  // Build directive metadata for the canonical converter
-  // The AST may also have frontmatter metadata that needs to be merged
   return convertToCanonical(ast, directives)
 }

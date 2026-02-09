@@ -8,7 +8,7 @@ import type {
   SimplifiedIngredient,
   SimplifiedStep,
   SimplifiedTimer,
-} from "./types.js"
+} from "./types"
 
 /**
  * Convert an AST step to a simplified step

@@ -17,8 +17,8 @@ function normalizeExpectedResult(result: CanonicalResult): CanonicalResult {
     metadata: result.metadata,
     steps: result.steps.map(step =>
       step.map(item => {
-        if (item.type === "cookware" && !("units" in item)) {
-          return { ...item, units: "" }
+        if (item.type === "cookware") {
+          return { ...item, units: item.units || "" }
         }
         return item
       }),

@@ -3,19 +3,15 @@
  * Defines how to convert the parse tree into our AST
  */
 
-// Load the grammar
-import { readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import * as Ohm from "ohm-js"
 import YAML from "yaml"
+import grammarSource from "../grammars/cooklang.ohm" with { type: "text" }
 import type {
   Comment,
   Cookware,
   Ingredient,
   Metadata,
   Note,
-  ParseError,
   Recipe,
   Section,
   SourcePosition,
@@ -23,95 +19,19 @@ import type {
   StepItem,
   TextItem,
   Timer,
-} from "./types.js"
+} from "./types"
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-const grammarFile = readFileSync(join(__dirname, "../grammars/cooklang.ohm"), "utf-8")
-const grammar = Ohm.grammar(grammarFile)
-
-/**
- * Parse simple YAML arrays and objects (non-quoted values)
- * Handles: [item1, item2] and {key: value, key2: value2}
- */
-function parseSimpleYamlValue(input: string): unknown {
-  const value = input.trim()
-
-  // Parse array: [item1, item2, item3] or object: {key: value}
-  if (
-    (value.startsWith("[") && value.endsWith("]")) ||
-    (value.startsWith("{") && value.endsWith("}"))
-  ) {
-    const isArray = value.startsWith("[")
-    const content = value.slice(1, -1).trim()
-
-    if (!content) {
-      return isArray ? [] : {}
-    }
-
-    // Split by comma at top level (respecting nested brackets)
-    const parts: string[] = []
-    let current = ""
-    let depth = 0
-    for (const char of content) {
-      if (char === "," && depth === 0) {
-        parts.push(current.trim())
-        current = ""
-      } else {
-        if (char === "[" || char === "{") depth++
-        if (char === "]" || char === "}") depth--
-        current += char
-      }
-    }
-    if (current.trim()) {
-      parts.push(current.trim())
-    }
-
-    if (isArray) {
-      return parts.map(item => parseScalar(item.trim()))
-    }
-
-    // Parse object
-    const obj: Record<string, unknown> = {}
-    for (const pair of parts) {
-      const colonIndex = pair.indexOf(":")
-      if (colonIndex > 0) {
-        const key = pair.slice(0, colonIndex).trim()
-        const val = pair.slice(colonIndex + 1).trim()
-        obj[key] = parseSimpleYamlValue(val)
-      }
-    }
-    return obj
-  }
-
-  return parseScalar(value)
-}
-
-/**
- * Parse a scalar value to appropriate type
- */
-function parseScalar(value: string): unknown {
-  if (value === "true") return true
-  if (value === "false") return false
-  if (value === "null" || value === "") return null
-  if (/^\d+$/.test(value)) return parseInt(value, 10)
-  if (/^\d+\.\d+$/.test(value)) return parseFloat(value)
-  return value
-}
+const grammar = Ohm.grammar(grammarSource)
 
 function parseMetadataValue(value: string): unknown {
-  const trimmedValue = value.trim()
-
-  if (trimmedValue.startsWith("[") || trimmedValue.startsWith("{")) {
-    try {
-      return JSON.parse(trimmedValue)
-    } catch {
-      return parseSimpleYamlValue(trimmedValue)
-    }
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = YAML.parse(trimmed)
+    return parsed === undefined ? trimmed : parsed
+  } catch {
+    return trimmed
   }
-
-  return parseScalar(trimmedValue)
 }
 
 function parseYamlFrontmatter(content: string): {
@@ -129,9 +49,7 @@ function parseYamlFrontmatter(content: string): {
     }
 
     const parsed = doc.toJS()
-    if (parsed === null || parsed === undefined) {
-      return { data: {} }
-    }
+    if (parsed == null) return { data: {} }
 
     if (typeof parsed !== "object" || Array.isArray(parsed)) {
       return {
@@ -156,30 +74,16 @@ function extractMetadataDirectives(source: string): {
   strippedSource: string
   content: string
 } {
-  type ParseMode = "default" | "components" | "steps" | "text"
-
-  const normalizeMode = (value: string): ParseMode => {
-    const lower = value.trim().toLowerCase()
-    if (lower === "components" || lower === "ingredients") return "components"
-    if (lower === "steps") return "steps"
-    if (lower === "text") return "text"
-    return "default"
-  }
-
   const lines = source.split(/\r\n|\n|\r/)
   const metadata: Record<string, unknown> = {}
   const stripped: string[] = []
   const content: string[] = []
-  let mode: ParseMode = "default"
+  let componentsMode = false
 
   for (const line of lines) {
     const match = line.match(/^\s*>>\s*([^:]+?)\s*:\s*(.*)\s*$/)
     if (!match) {
-      if (mode === "components") {
-        stripped.push("")
-        continue
-      }
-      stripped.push(line)
+      stripped.push(componentsMode ? "" : line)
       continue
     }
 
@@ -196,7 +100,8 @@ function extractMetadataDirectives(source: string): {
 
     const lowerKey = key.toLowerCase()
     if (lowerKey === "[mode]" || lowerKey === "[define]") {
-      mode = normalizeMode(value)
+      const lower = value.trim().toLowerCase()
+      componentsMode = lower === "components" || lower === "ingredients"
     }
   }
 
@@ -217,9 +122,7 @@ function parseTokenAmount(content: string): {
   preparation?: string
 } {
   const trimmed = content.trim()
-  if (!trimmed) {
-    return {}
-  }
+  if (!trimmed) return {}
 
   const percentIdx = trimmed.indexOf("%")
   if (percentIdx !== -1) {
@@ -255,14 +158,10 @@ function splitNameAndAmount(raw: string): {
   amountContent?: string
 } {
   const trimmed = raw.trim()
-  if (!trimmed.endsWith("}")) {
-    return { namePart: trimmed }
-  }
+  if (!trimmed.endsWith("}")) return { namePart: trimmed }
 
   const amountStart = trimmed.lastIndexOf("{")
-  if (amountStart === -1) {
-    return { namePart: trimmed }
-  }
+  if (amountStart === -1) return { namePart: trimmed }
 
   return {
     namePart: trimmed.slice(0, amountStart).trim(),
@@ -318,7 +217,6 @@ function parseIngredientToken(token: string): {
 
   raw = raw.replace(/^[@&?+-]+/, "")
 
-  // Extract trailing (preparation) suffix
   let preparation: string | undefined
   const prepMatch = raw.match(/\(([^)]*)\)$/)
   if (prepMatch) {
@@ -329,7 +227,6 @@ function parseIngredientToken(token: string): {
   const { namePart, amountContent } = splitNameAndAmount(raw)
   const name = normalizeComponentName(namePart)
 
-  // Check for fixed quantity marker inside braces: {=qty%unit}
   let fixedContent = amountContent
   if (fixedContent?.trimStart().startsWith("=")) {
     fixed = true
@@ -338,15 +235,12 @@ function parseIngredientToken(token: string): {
 
   const amount = fixedContent !== undefined ? parseTokenAmount(fixedContent) : {}
 
-  // Merge preparation: explicit (prep) suffix takes precedence over amount-parsed preparation
-  const finalPreparation = preparation ?? amount.preparation
-
   return {
     name,
     fixed,
     quantity: amount.quantity,
     unit: amount.unit,
-    preparation: finalPreparation,
+    preparation: preparation ?? amount.preparation,
     rawAmount: amountContent,
   }
 }
@@ -393,17 +287,12 @@ function parseTimerToken(token: string): {
   }
 }
 
-/**
- * Stub position - proper line/column tracking not yet implemented
- */
 const stubPosition: SourcePosition = { line: 1, column: 1, offset: 0 }
 
-/** Get the source string from an Ohm semantic action context */
 function getSource(ctx: unknown): string {
   return (ctx as { sourceString: string }).sourceString
 }
 
-/** Build an Ingredient AST node from the semantic action context */
 function ingredientFromSource(ctx: unknown): Ingredient {
   const parsed = parseIngredientToken(getSource(ctx))
   return {
@@ -418,7 +307,6 @@ function ingredientFromSource(ctx: unknown): Ingredient {
   }
 }
 
-/** Build a Cookware AST node from the semantic action context */
 function cookwareFromSource(ctx: unknown): Cookware {
   const parsed = parseCookwareToken(getSource(ctx))
   return {
@@ -429,99 +317,88 @@ function cookwareFromSource(ctx: unknown): Cookware {
   }
 }
 
-/**
- * Create semantic actions for AST building
- */
+interface OhmNode {
+  toAST(): unknown
+}
+
+function callToAST(node: unknown): unknown {
+  return (node as OhmNode).toAST()
+}
+
 function createSemantics() {
   const semantics = grammar.createSemantics()
 
   semantics.addOperation("toAST", {
     Recipe(_metadata, items) {
       const firstChild = _metadata.numChildren > 0 ? _metadata.children[0] : null
-      const metadataNode = firstChild ? (firstChild.toAST() as Metadata) : null
+      const metadataNode = firstChild ? (callToAST(firstChild) as Metadata) : null
 
       const sectionsList: Section[] = []
       const stepsList: Step[] = []
       const notesList: Note[] = []
 
       for (const item of items.children) {
-        const node = (item as unknown as { toAST(): unknown }).toAST()
-        if (node && typeof node === "object" && "type" in node) {
-          switch ((node as { type: string }).type) {
-            case "section":
-              sectionsList.push(node as Section)
-              break
-            case "step":
-              stepsList.push(node as Step)
-              break
-            case "note":
-              notesList.push(node as Note)
-              break
-          }
+        const node = callToAST(item) as { type: string } | null
+        if (!node) continue
+        switch (node.type) {
+          case "section":
+            sectionsList.push(node as Section)
+            break
+          case "step":
+            stepsList.push(node as Step)
+            break
+          case "note":
+            notesList.push(node as Note)
+            break
         }
       }
 
       return {
-        type: "recipe" as const,
+        type: "recipe",
         position: stubPosition,
         metadata: metadataNode,
         sections: sectionsList,
         steps: stepsList,
         notes: notesList,
         errors: [],
-      } satisfies Recipe
+      } as Recipe
     },
 
     Metadata(_dash1, yaml, _dash2) {
-      const content = yaml.sourceString
-
       return {
-        type: "metadata" as const,
+        type: "metadata",
         position: stubPosition,
-        content,
+        content: yaml.sourceString,
         data: {},
-      } satisfies Metadata
+      } as Metadata
     },
 
     Section_double(_eq1, name, _eq2) {
-      const nameStr = name.sourceString.trim()
-      return {
-        type: "section" as const,
-        position: stubPosition,
-        name: nameStr,
-      } satisfies Section
+      return { type: "section", position: stubPosition, name: name.sourceString.trim() } as Section
     },
 
     Section_single(_eq, name) {
-      const nameStr = name.sourceString.trim()
-      return {
-        type: "section" as const,
-        position: stubPosition,
-        name: nameStr,
-      } satisfies Section
+      return { type: "section", position: stubPosition, name: name.sourceString.trim() } as Section
     },
 
     Step(lines) {
-      const stepLines = lines.children.map((line: unknown) =>
-        (
-          line as {
-            toAST(): {
-              text: string
-              items: StepItem[]
-              ingredients: Ingredient[]
-              cookware: Cookware[]
-              timers: Timer[]
-              inlineComments: Comment[]
-            }
-          }
-        ).toAST(),
+      const stepLines = lines.children.map(
+        (line: unknown) =>
+          callToAST(line) as {
+            text: string
+            items: StepItem[]
+            ingredients: Ingredient[]
+            cookware: Cookware[]
+            timers: Timer[]
+            inlineComments: Comment[]
+          },
       )
+
       const allItems: StepItem[] = []
       const allIngredients: Ingredient[] = []
       const allCookware: Cookware[] = []
       const allTimers: Timer[] = []
       const allComments: Comment[] = []
-
       let fullText = ""
 
       for (const line of stepLines) {
@@ -534,7 +411,7 @@ function createSemantics() {
       }
 
       return {
-        type: "step" as const,
+        type: "step",
         position: stubPosition,
         text: fullText.trim(),
         items: allItems,
@@ -542,13 +419,13 @@ function createSemantics() {
         cookware: allCookware,
         timers: allTimers,
         inlineComments: allComments,
-      } satisfies Step
+      } as Step
     },
 
     StepLine(items, inlineComment, _newline) {
       const stepItems = items.children
-        .map((c: unknown) => (c as unknown as { toAST?: () => unknown }).toAST?.())
-        .filter((c): c is NonNullable<typeof c> => c !== null && c !== undefined)
+        .map((c: unknown) => (c as { toAST?: () => unknown }).toAST?.())
+        .filter((c): c is NonNullable<typeof c> => c != null)
 
       const orderedItems: StepItem[] = []
       const ingredients: Ingredient[] = []
@@ -558,40 +435,48 @@ function createSemantics() {
 
       for (const item of stepItems) {
         const typed = item as { type: string }
-        if (typed.type === "ingredient") {
-          ingredients.push(item as Ingredient)
-          orderedItems.push(item as Ingredient)
-        } else if (typed.type === "cookware") {
-          cookware.push(item as Cookware)
-          orderedItems.push(item as Cookware)
-        } else if (typed.type === "timer") {
-          timers.push(item as Timer)
-          orderedItems.push(item as Timer)
-        } else if (typed.type === "text") {
-          orderedItems.push(item as TextItem)
-        } else if (typed.type === "comment") {
-          inlineComments.push(item as Comment)
+        switch (typed.type) {
+          case "ingredient":
+            ingredients.push(item as Ingredient)
+            orderedItems.push(item as Ingredient)
+            break
+          case "cookware":
+            cookware.push(item as Cookware)
+            orderedItems.push(item as Cookware)
+            break
+          case "timer":
+            timers.push(item as Timer)
+            orderedItems.push(item as Timer)
+            break
+          case "text":
+            orderedItems.push(item as TextItem)
+            break
+          case "comment":
+            inlineComments.push(item as Comment)
+            break
         }
       }
 
       if (inlineComment.numChildren > 0) {
-        inlineComments.push((inlineComment.children[0] as unknown as { toAST(): Comment }).toAST())
+        inlineComments.push(callToAST(inlineComment.children[0]) as Comment)
       }
 
-      const text = getSource(this)
-
-      return { text, items: orderedItems, ingredients, cookware, timers, inlineComments }
+      return {
+        text: getSource(this),
+        items: orderedItems,
+        ingredients,
+        cookware,
+        timers,
+        inlineComments,
+      }
     },
 
     StepItem(self) {
-      return (self as unknown as { toAST(): unknown }).toAST()
+      return callToAST(self)
     },
 
     Text(self) {
-      return {
-        type: "text" as const,
-        value: self.sourceString,
-      }
+      return { type: "text", value: self.sourceString }
     },
 
     Ingredient_multi(_fixed, _at, _mods, _nameFirst, _space, _nameRest, _amount, _prep) {
@@ -612,43 +497,36 @@ function createSemantics() {
 
     Timer_withAmount(_tilde, _name, _lbrace, _quantity, _unit, _rbrace) {
       const parsed = parseTimerToken(getSource(this))
-
       return {
-        type: "timer" as const,
+        type: "timer",
         position: stubPosition,
         name: parsed.name,
         quantity: parsed.quantity,
         unit: parsed.unit,
         rawAmount: parsed.rawAmount,
-      } satisfies Timer
+      } as Timer
     },
 
     Timer_word(_tilde, name) {
       return {
-        type: "timer" as const,
+        type: "timer",
         position: stubPosition,
         name: name.sourceString.trim(),
         quantity: "",
         unit: undefined,
-      } satisfies Timer
+      } as Timer
     },
 
     Note(_gt, noteContents, _newline) {
-      // noteContent children are individual characters, we need to concatenate them
-      const text = noteContents.sourceString.trim()
       return {
-        type: "note" as const,
+        type: "note",
         position: stubPosition,
-        text,
-      } satisfies Note
+        text: noteContents.sourceString.trim(),
+      } as Note
     },
 
     InlineComment(_dash, text) {
-      return {
-        type: "comment" as const,
-        position: stubPosition,
-        text: text.sourceString.trim(),
-      } satisfies Comment
+      return { type: "comment", position: stubPosition, text: text.sourceString.trim() } as Comment
     },
 
     BlockComment(_start, _text, _end) {
@@ -656,7 +534,7 @@ function createSemantics() {
     },
 
     RecipeItem(self) {
-      return (self as unknown as { toAST(): unknown }).toAST()
+      return callToAST(self)
     },
 
     CommentLine(_spaces, _comment, _newline) {
@@ -679,131 +557,74 @@ function createSemantics() {
   return semantics
 }
 
-// Create the semantics instance
 const semantics = createSemantics()
-
-/**
- * Validate recipe for common syntax errors
- */
-function validateRecipe(recipe: Recipe, source: string): ParseError[] {
-  const errors: ParseError[] = []
-
-  // Check for unclosed brackets
-  let depth = 0
-  for (let i = 0; i < source.length; i++) {
-    const char = source[i]
-    if (char === "{") {
-      depth++
-    } else if (char === "}") {
-      depth--
-    }
-  }
-  if (depth > 0) {
-    errors.push({
-      message: `Unclosed bracket: ${depth} opening bracket(s) not closed`,
-      position: { line: 1, column: 1, offset: 0 },
-      severity: "error" as const,
-    })
-  } else if (depth < 0) {
-    errors.push({
-      message: `Unmatched closing bracket: ${Math.abs(depth)} closing bracket(s) without opening`,
-      position: { line: 1, column: 1, offset: 0 },
-      severity: "error" as const,
-    })
-  }
-
-  for (const step of recipe.steps) {
-    for (const timer of step.timers) {
-      if (timer.quantity.trim().length > 0 && !timer.unit) {
-        errors.push({
-          message: "Invalid timer quantity: missing unit",
-          position: timer.position,
-          severity: "warning",
-        })
-      }
-    }
-  }
-
-  return errors
-}
 
 /**
  * Parse Cooklang source and return AST
  */
 export function parseToAST(source: string): Recipe {
   const directiveMetadata = extractMetadataDirectives(source)
-  const directiveMetadataEntries = Object.keys(directiveMetadata.metadata)
-  const directiveMetadataNode =
-    directiveMetadataEntries.length > 0
-      ? ({
-          type: "metadata" as const,
+  const directiveEntries = Object.keys(directiveMetadata.metadata)
+  const directiveNode: Metadata | null =
+    directiveEntries.length > 0
+      ? {
+          type: "metadata",
           position: stubPosition,
           content: directiveMetadata.content,
           data: directiveMetadata.metadata,
-        } satisfies Metadata)
+        }
       : null
 
   const matchResult = grammar.match(directiveMetadata.strippedSource)
 
   if (!matchResult.succeeded()) {
-    const errors: ParseError[] = []
     const mr = matchResult as unknown as { message?: string; shortMessage?: string }
-    errors.push({
-      message: mr.message || mr.shortMessage || "Parse error",
-      position: { line: 1, column: 1, offset: 0 },
-      severity: "error" as const,
-    })
-
     return {
       type: "recipe",
-      position: { line: 1, column: 1, offset: 0 },
-      metadata: directiveMetadataNode,
+      position: stubPosition,
+      metadata: directiveNode,
       sections: [],
       steps: [],
       notes: [],
-      errors,
+      errors: [
+        {
+          message: mr.message || mr.shortMessage || "Parse error",
+          position: stubPosition,
+          severity: "error",
+        },
+      ],
     }
   }
 
   const cst = semantics(matchResult)
-  const recipe = (cst as unknown as { toAST(): Recipe }).toAST()
+  const recipe = (cst as OhmNode).toAST() as Recipe
 
   if (recipe.metadata) {
     const parsedFrontmatter = parseYamlFrontmatter(recipe.metadata.content)
-    recipe.metadata = {
-      ...recipe.metadata,
-      data: parsedFrontmatter.data,
-    }
+    recipe.metadata = { ...recipe.metadata, data: parsedFrontmatter.data }
 
     if (parsedFrontmatter.warning) {
       recipe.errors.push({
         message: parsedFrontmatter.warning,
-        position: { line: 1, column: 1, offset: 0 },
+        position: stubPosition,
         severity: "warning",
       })
     }
   }
 
-  if (directiveMetadataNode) {
+  if (directiveNode) {
     if (recipe.metadata) {
       recipe.metadata = {
         ...recipe.metadata,
-        content: [recipe.metadata.content, directiveMetadataNode.content]
+        content: [recipe.metadata.content, directiveNode.content]
           .filter(part => part.length > 0)
           .join("\n"),
-        data: {
-          ...recipe.metadata.data,
-          ...directiveMetadataNode.data,
-        },
+        data: { ...recipe.metadata.data, ...directiveNode.data },
       }
     } else {
-      recipe.metadata = directiveMetadataNode
+      recipe.metadata = directiveNode
     }
   }
-
-  // Add validation errors
-  const validationErrors = validateRecipe(recipe, directiveMetadata.strippedSource)
-  recipe.errors.push(...validationErrors)
 
   return recipe
 }

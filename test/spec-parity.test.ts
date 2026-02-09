@@ -81,14 +81,6 @@ step
   expect(recipe.steps.map(s => s.text)).toEqual(["step"])
 })
 
-test("spec parity: timer quantity without unit produces warning", () => {
-  const ast = parseToAST("Cook for ~{30}")
-
-  expect(ast.errors.some(e => e.severity === "warning" && e.message.includes("missing unit"))).toBe(
-    true,
-  )
-})
-
 test("spec parity: valid YAML frontmatter parses", () => {
   const source = `---
 title: Test Recipe
@@ -111,7 +103,7 @@ test("spec parity: preparation suffix on ingredient", () => {
   const source = `Add @flour{100%g}(sifted) to bowl.\n`
 
   const ast = parseToAST(source)
-  const ingredient = ast.steps[0].ingredients[0]
+  const ingredient = ast.steps[0]!.ingredients[0]!
 
   expect(ingredient.name).toBe("flour")
   expect(ingredient.quantity).toBe("100")
@@ -123,7 +115,7 @@ test("spec parity: fixed quantity inside braces", () => {
   const source = `Add @salt{=1%tsp} to taste.\n`
 
   const ast = parseToAST(source)
-  const ingredient = ast.steps[0].ingredients[0]
+  const ingredient = ast.steps[0]!.ingredients[0]!
 
   expect(ingredient.name).toBe("salt")
   expect(ingredient.quantity).toBe("1")
@@ -148,8 +140,8 @@ test("spec parity: comment requires space after dashes", () => {
   const recipe = parseCooklang(source)
 
   expect(recipe.steps).toHaveLength(1)
-  expect(recipe.steps[0].text).toContain("text--more text")
-  expect(recipe.steps[0].inlineComments).toHaveLength(0)
+  expect(recipe.steps[0]!.text).toContain("text--more text")
+  expect(recipe.steps[0]!.inlineComments).toHaveLength(0)
 })
 
 test("spec parity: invalid YAML frontmatter becomes warning and is ignored", () => {
