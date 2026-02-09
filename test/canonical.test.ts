@@ -26,39 +26,28 @@ function normalizeExpectedResult(result: CanonicalResult): CanonicalResult {
   }
 }
 
+interface CanonicalYaml {
+  version: number
+  tests: Record<string, CanonicalCase>
+}
+
 function loadCanonicalCases(): Array<[string, CanonicalCase]> {
-  const canonicalCasesPath = join(import.meta.dir, "fixtures/canonical_cases.rs")
-  const source = readFileSync(canonicalCasesPath, "utf-8")
-  const cases: Array<[string, CanonicalCase]> = []
+  const yamlPath = join(import.meta.dir, "fixtures/canonical.yaml")
+  const content = readFileSync(yamlPath, "utf-8")
+  const parsed = Bun.YAML.parse(content) as CanonicalYaml
 
-  const caseRegex = /#\[test_case\(r#"\n([\s\S]*?)"#\n;\s*"([^"]+)"\)\]/g
-  let match: RegExpExecArray | null
-
-  while ((match = caseRegex.exec(source)) !== null) {
-    const yaml = match[1]
-    const name = match[2]
-
-    if (!yaml || !name) {
-      continue
-    }
-
-    const parsed = Bun.YAML.parse(yaml) as CanonicalCase
-    cases.push([
-      name,
-      {
-        source: parsed.source,
-        result: normalizeExpectedResult(parsed.result),
-      },
-    ])
-  }
-
-  return cases.sort(([a], [b]) => a.localeCompare(b))
+  return Object.entries(parsed.tests)
+    .map(([key, testCase]) => {
+      const name = key.replace(/^test/, "")
+      return [name, { source: testCase.source, result: normalizeExpectedResult(testCase.result) }] as [string, CanonicalCase]
+    })
+    .sort(([a], [b]) => a.localeCompare(b))
 }
 
 const canonicalCases = loadCanonicalCases()
 
 test("loads canonical spec fixtures", () => {
-  expect(canonicalCases.length).toBeGreaterThan(50)
+  expect(canonicalCases.length).toBeGreaterThan(55)
 })
 
 for (const [name, testCase] of canonicalCases) {

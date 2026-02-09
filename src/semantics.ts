@@ -13,49 +13,155 @@ import type {
 
 const grammar = Ohm.grammar(grammarSource)
 
-function parseQuantity(qty: string): string | number {
-  const trimmed = qty.trim()
-  if (!trimmed) return ""
-  if (/[a-zA-Z]/.test(trimmed)) return trimmed
+// ---------------------------------------------------------------------------
+// Type guards
+// ---------------------------------------------------------------------------
 
-  const noSpaces = trimmed.replace(/\s+/g, "")
-  const frac = noSpaces.match(/^(\d+)\/(\d+)$/)
-  if (frac?.[1] && frac[2]) {
-    if (frac[1].startsWith("0") && frac[1].length > 1) return trimmed
-    if (+frac[2] !== 0) return +frac[1] / +frac[2]
-  }
-  const asNum = parseFloat(noSpaces)
-  return Number.isNaN(asNum) ? trimmed : asNum
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v != null && typeof v === "object" && !Array.isArray(v)
 }
 
-function parseAmount(content: string): { quantity: string | number; units: string } {
-  const trimmed = content.trim().replace(/^=\s*/, "")
-  const lastPercent = trimmed.lastIndexOf("%")
-  if (lastPercent !== -1) {
+function isASTNode(n: unknown): n is { type: string; name: string; text: string } {
+  return isRecord(n) && typeof n.type === "string"
+}
+
+// ---------------------------------------------------------------------------
+// Quantity & amount parsing
+// ---------------------------------------------------------------------------
+
+/** Parse a quantity string into a number (including fractions) or keep as string. */
+function parseQuantity(raw: string): string | number {
+  const qty = raw.trim()
+  if (!qty) return ""
+  if (/[a-zA-Z]/.test(qty)) return qty
+
+  const compact = qty.replace(/\s+/g, "")
+  const frac = compact.match(/^(\d+)\/(\d+)$/)
+  if (frac?.[1] && frac[2]) {
+    // Preserve leading-zero fractions like "01/2" as strings
+    if (frac[1].startsWith("0") && frac[1].length > 1) return qty
+    if (+frac[2] !== 0) return +frac[1] / +frac[2]
+  }
+  const num = parseFloat(compact)
+  return Number.isNaN(num) ? qty : num
+}
+
+/**
+ * Split an amount string into quantity and units.
+ * Formats: "qty%unit", "qty unit" (unit >= 3 chars), or bare quantity.
+ * A leading `=` (fixed indicator) is stripped.
+ */
+function parseAmount(raw: string): { quantity: string | number; units: string } {
+  const amount = raw.trim().replace(/^=\s*/, "")
+
+  // "%" is the canonical qty/unit separator
+  const pctIdx = amount.lastIndexOf("%")
+  if (pctIdx !== -1) {
     return {
-      quantity: parseQuantity(trimmed.slice(0, lastPercent).trim()),
-      units: trimmed.slice(lastPercent + 1).trim(),
+      quantity: parseQuantity(amount.slice(0, pctIdx).trim()),
+      units: amount.slice(pctIdx + 1).trim(),
     }
   }
-  const spaceMatch = trimmed.match(/^(\S+)\s+(\S{3,}.*)$/)
+
+  // Space separator: "100 grams" (unit must be >= 3 chars to avoid "1 ½" splits)
+  const spaceMatch = amount.match(/^(\S+)\s+(\S{3,}.*)$/)
   if (spaceMatch?.[1] && spaceMatch[2]) {
     return {
       quantity: parseQuantity(spaceMatch[1]),
       units: spaceMatch[2].trim(),
     }
   }
-  return { quantity: parseQuantity(trimmed), units: "" }
+
+  return { quantity: parseQuantity(amount), units: "" }
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v != null && typeof v === "object" && !Array.isArray(v)
+// ---------------------------------------------------------------------------
+// Component parsing (ingredients, cookware, timers)
+// ---------------------------------------------------------------------------
+
+/** Extract name and optional brace-delimited amount from a component token. */
+function parseComponent(raw: string): { name: string; amountContent?: string } {
+  const trimmed = raw.trim()
+  const braceStart = trimmed.endsWith("}") ? trimmed.lastIndexOf("{") : -1
+  const rawName = braceStart === -1 ? trimmed : trimmed.slice(0, braceStart).trim()
+  const name = rawName.replace(/\|.*/, "").trim() // strip pipe alias
+  if (braceStart === -1) return { name }
+  return { name, amountContent: trimmed.slice(braceStart + 1, -1) }
+}
+
+function convertIngredient(token: string): RecipeIngredient {
+  const trimmed = token.trim()
+  const stripped = trimmed.replace(/^=\s*/, "").replace(/^[@&?+-]+/, "")
+
+  // Extract trailing (preparation)
+  const prepMatch = stripped.match(/\(([^)]*)\)$/)
+  const preparation = prepMatch?.[1] || undefined
+  const body = prepMatch ? stripped.slice(0, prepMatch.index).trimEnd() : stripped
+
+  const { name, amountContent } = parseComponent(body)
+  const fixed = trimmed.startsWith("=") || amountContent?.trimStart().startsWith("=") === true
+  const content = amountContent?.trim()
+  const amt = content ? parseAmount(content) : { quantity: "some", units: "" }
+  return { type: "ingredient", name, ...amt, fixed, preparation }
+}
+
+function convertCookware(token: string): RecipeCookware {
+  const { name, amountContent } = parseComponent(token.trim().replace(/^[#&?+-]+/, ""))
+  const rawQty = amountContent?.trim()
+  const num = rawQty ? parseFloat(rawQty) : NaN
+  const quantity: number | string = rawQty ? (Number.isNaN(num) ? rawQty : num) : 1
+  return { type: "cookware", name, quantity, units: "" }
+}
+
+function convertTimer(token: string): RecipeTimer {
+  const { name, amountContent } = parseComponent(token.trim().replace(/^~/, ""))
+  if (!amountContent) return { type: "timer", name, quantity: "", units: "" }
+  const { quantity, units } = parseAmount(amountContent)
+  return { type: "timer", name, quantity, units }
+}
+
+// ---------------------------------------------------------------------------
+// YAML frontmatter
+// ---------------------------------------------------------------------------
+
+interface YamlParseResult {
+  data: Record<string, unknown>
+  warning?: string
+  position?: SourcePosition
+}
+
+function computeYamlOffset(content: string, line: number, col: number): number {
+  const linesAbove = content.split("\n").slice(0, line - 1)
+  return linesAbove.reduce((sum, l) => sum + l.length + 1, 0) + col - 1
+}
+
+/** Lenient line-by-line `key: value` parser for frontmatter that isn't valid YAML. */
+function parseFrontmatterLines(content: string): Record<string, string> | null {
+  const data: Record<string, string> = {}
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const colonIdx = trimmed.indexOf(":")
+    if (colonIdx <= 0) return null
+    const key = trimmed.slice(0, colonIdx).trim()
+    const value = trimmed.slice(colonIdx + 1).trim()
+    if (!key) return null
+    data[key] = value
+  }
+  return Object.keys(data).length > 0 ? data : null
 }
 
 function parseYamlFrontmatter(content: string, yamlStartOffset: number): YamlParseResult {
   try {
     const parsed = YAML.parse(content)
-    if (parsed == null) return { data: {} }
+    if (parsed == null) {
+      const fallback = parseFrontmatterLines(content)
+      if (fallback) return { data: fallback }
+      return { data: {} }
+    }
     if (!isRecord(parsed)) {
+      const fallback = parseFrontmatterLines(content)
+      if (fallback) return { data: fallback }
       const typeName = Array.isArray(parsed) ? "an array" : `a ${typeof parsed}`
       return {
         data: {},
@@ -83,16 +189,17 @@ function parseYamlFrontmatter(content: string, yamlStartOffset: number): YamlPar
   }
 }
 
-function computeYamlOffset(content: string, line: number, col: number): number {
-  const lineOffset = content
-    .split("\n")
-    .slice(0, line - 1)
-    .reduce((sum, l) => sum + l.length + 1, 0)
-  return lineOffset + col - 1
-}
+// ---------------------------------------------------------------------------
+// Metadata directives (>> key: value)
+// ---------------------------------------------------------------------------
 
 const directiveRegex = /^\s*>>\s*([^:]+?)\s*:\s*(.*)\s*$/
 
+/**
+ * Strip `>> key: value` directive lines from source before grammar matching.
+ * Returns directive metadata, stripped source, and an offset map that
+ * translates positions in stripped source back to the original.
+ */
 function extractMetadataDirectives(source: string): {
   metadata: Record<string, unknown>
   strippedSource: string
@@ -110,18 +217,10 @@ function extractMetadataDirectives(source: string): {
     const line = lines[i] ?? ""
     const match = line.match(directiveRegex)
 
-    if (!match) {
-      const content = componentsMode ? "" : line
-      for (let j = 0; j < content.length; j++) {
-        offsetMap[strippedOffset + j] = originalOffset + j
-      }
-      stripped.push(content)
-      strippedOffset += content.length + 1 // +1 for newline
-      offsetMap[strippedOffset - 1] = originalOffset + line.length // map the newline
-    } else {
+    if (match) {
+      // Directive line — extract key/value, emit empty line to preserve line count
       const key = (match[1] ?? "").trim()
       const value = (match[2] ?? "").trim()
-
       try {
         const parsed = value ? YAML.parse(value) : undefined
         metadata[key] = parsed === undefined ? value || null : parsed
@@ -130,72 +229,47 @@ function extractMetadataDirectives(source: string): {
       }
       stripped.push("")
       offsetMap[strippedOffset] = originalOffset + line.length
-      strippedOffset += 1 // just the newline
+      strippedOffset += 1
 
+      // [mode]/[define] directives switch to components-only mode
       const lowerKey = key.toLowerCase()
       if (lowerKey === "[mode]" || lowerKey === "[define]") {
         const lower = value.toLowerCase()
         componentsMode = lower === "components" || lower === "ingredients"
       }
+    } else {
+      // Regular line — copy through (blank if in components mode)
+      const content = componentsMode ? "" : line
+      for (let j = 0; j < content.length; j++) {
+        offsetMap[strippedOffset + j] = originalOffset + j
+      }
+      stripped.push(content)
+      strippedOffset += content.length + 1 // +1 for newline
+      offsetMap[strippedOffset - 1] = originalOffset + line.length
     }
 
+    // Advance past the line content + its newline separator
     originalOffset += line.length
     if (i < lines.length - 1) {
-      const restStart = originalOffset
-      if (source[restStart] === "\r" && source[restStart + 1] === "\n") {
-        originalOffset += 2
-      } else {
-        originalOffset += 1
-      }
+      originalOffset += source[originalOffset] === "\r" && source[originalOffset + 1] === "\n" ? 2 : 1
     }
   }
 
   return { metadata, strippedSource: stripped.join("\n"), offsetMap }
 }
 
+/** Map an offset in stripped source back to the original source. */
 function mapOffset(off: number, map: number[]): number {
   if (map.length === 0) return off
   if (off < map.length) return map[off] ?? off
   return (map[map.length - 1] ?? map.length - 1) + (off - map.length + 1)
 }
 
-function parseComponent(raw: string): { name: string; amountContent?: string } {
-  const trimmed = raw.trim()
-  const braceStart = trimmed.endsWith("}") ? trimmed.lastIndexOf("{") : -1
-  const rawName = braceStart === -1 ? trimmed : trimmed.slice(0, braceStart).trim()
-  const name = rawName.replace(/\|.*/, "").trim()
-  if (braceStart === -1) return { name }
-  return { name, amountContent: trimmed.slice(braceStart + 1, -1) }
-}
+// ---------------------------------------------------------------------------
+// Step utilities
+// ---------------------------------------------------------------------------
 
-function convertIngredient(token: string): RecipeIngredient {
-  const trimmed = token.trim()
-  const stripped = trimmed.replace(/^=\s*/, "").replace(/^[@&?+-]+/, "")
-  const prepMatch = stripped.match(/\(([^)]*)\)$/)
-  const preparation = prepMatch?.[1] || undefined
-  const body = prepMatch ? stripped.slice(0, prepMatch.index).trimEnd() : stripped
-  const { name, amountContent } = parseComponent(body)
-  const fixed = trimmed.startsWith("=") || amountContent?.trimStart().startsWith("=") === true
-  const content = amountContent?.trim()
-  const amt = content ? parseAmount(content) : { quantity: "some", units: "" }
-  return { type: "ingredient", name, ...amt, fixed, preparation }
-}
-
-function convertCookware(token: string): RecipeCookware {
-  const { name, amountContent } = parseComponent(token.trim().replace(/^[#&?+-]+/, ""))
-  const rawQty = amountContent?.trim()
-  const asNum = rawQty ? parseFloat(rawQty) : NaN
-  const quantity: number | string = rawQty ? (Number.isNaN(asNum) ? rawQty : asNum) : 1
-  return { type: "cookware", name, quantity, units: "" }
-}
-
-function convertTimer(token: string): RecipeTimer {
-  const { name, amountContent } = parseComponent(token.trim().replace(/^~/, ""))
-  if (!amountContent) return { type: "timer", name, quantity: "", units: "" }
-  const { quantity, units } = parseAmount(amountContent)
-  return { type: "timer", name, quantity, units }
-}
-
+/** Merge adjacent text items into single items (e.g. across soft line breaks). */
 function mergeConsecutiveTexts(items: RecipeStepItem[]): RecipeStepItem[] {
   const result: RecipeStepItem[] = []
   for (const item of items) {
@@ -209,6 +283,7 @@ function mergeConsecutiveTexts(items: RecipeStepItem[]): RecipeStepItem[] {
   return result
 }
 
+/** Collect unique items of a given type across all steps. */
 function collectUnique<T extends RecipeStepItem>(
   steps: RecipeStepItem[][],
   type: string,
@@ -227,15 +302,9 @@ function collectUnique<T extends RecipeStepItem>(
   return result
 }
 
-function isASTNode(n: unknown): n is { type: string; name: string; text: string } {
-  return isRecord(n) && typeof n.type === "string"
-}
-
-interface YamlParseResult {
-  data: Record<string, unknown>
-  warning?: string
-  position?: SourcePosition
-}
+// ---------------------------------------------------------------------------
+// Ohm semantic actions
+// ---------------------------------------------------------------------------
 
 interface SemanticResult {
   frontmatter: string | null
@@ -297,14 +366,17 @@ semantics.addOperation("toAST", {
 
   _nonterminal(...children) {
     if (children.length !== 1) return null
-    const first = children[0]
-    return first ? first.toAST() : null
+    return children[0]?.toAST() ?? null
   },
 
   _terminal() {
     return null
   },
 })
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
 
 export function parseCooklang(source: string): CooklangRecipe {
   const directives = extractMetadataDirectives(source)
