@@ -81,7 +81,7 @@ function parseYamlFrontmatter(
       warning: `Invalid YAML frontmatter: ${error instanceof Error ? error.message : "parse error"}`,
       position: linePos?.[0]
         ? {
-            line: linePos[0].line + 1,
+            line: linePos[0].line,
             column: linePos[0].col,
             offset: yamlStartOffset + errorOffset,
           }

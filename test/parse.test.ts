@@ -900,6 +900,32 @@ Mix @flour{250%g}.
   expect(warning.message).toContain('got a string');
 });
 
+test('parse error reports correct line number on later lines', () => {
+  const source = `Mix @flour{250%g}.
+Add @eggs{3}.
+=`;
+  const recipe = parseCooklang(source);
+
+  expect(recipe.errors).toHaveLength(1);
+  const err = recipe.errors[0]!;
+  expect(err.position.line).toBe(3);
+});
+
+test('YAML error line points to the source line with the problem', () => {
+  const source = `---
+title: Test
+tags: [broken
+---
+@eggs{2}`;
+  const recipe = parseCooklang(source);
+
+  const w = recipe.warnings.find(e => /yaml/i.test(e.message))!;
+  expect(w).toBeDefined();
+  // Error should point at or before the closing ---, not past it
+  expect(w.position.line).toBeLessThanOrEqual(4);
+  expect(w.position.line).toBeGreaterThanOrEqual(3);
+});
+
 test('braces in text do not produce false warnings', () => {
   const source = `Add @flour{250%g} and @eggs{3}.`;
 
