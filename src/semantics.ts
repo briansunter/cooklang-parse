@@ -303,7 +303,6 @@ semantics.addOperation("toAST", {
   },
 })
 
-
 export function parseCooklang(source: string): CooklangRecipe {
   const directives = extractMetadataDirectives(source)
   const matchResult = grammar.match(directives.strippedSource)
@@ -346,7 +345,6 @@ export function parseCooklang(source: string): CooklangRecipe {
       severity: "warning",
     })
   }
-
 
   const metadata = { ...yaml?.data, ...directives.metadata }
   const keyFn = (i: { name: string; quantity: string | number; units: string }) =>
