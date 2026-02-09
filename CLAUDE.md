@@ -61,7 +61,7 @@ grammars/cooklang.ohm  →  src/semantics.ts  →  CooklangRecipe
 ### Test structure
 
 - `test/parse.test.ts` — Main parser tests for the public API
-- `test/canonical.test.ts` — Canonical format tests dynamically loaded from Rust reference fixtures at `../cooklang-rs/tests/canonical_cases/mod.rs`
+- `test/canonical.test.ts` — Canonical format tests loaded from vendored Rust reference fixtures at `test/fixtures/canonical_cases.rs`
 - `test/spec-parity.test.ts` — Targeted tests ensuring behavior matches the official Cooklang spec
 - `test/syntax-features-audit.test.ts` — Comprehensive syntax feature coverage audit
 

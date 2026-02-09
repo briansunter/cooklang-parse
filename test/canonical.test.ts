@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { existsSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { parseToCanonical, type CanonicalResult } from "./canonical-helper"
 
@@ -27,12 +27,7 @@ function normalizeExpectedResult(result: CanonicalResult): CanonicalResult {
 }
 
 function loadCanonicalCases(): Array<[string, CanonicalCase]> {
-  const canonicalCasesPath = join(process.cwd(), "../cooklang-rs/tests/canonical_cases/mod.rs")
-
-  if (!existsSync(canonicalCasesPath)) {
-    throw new Error(`Missing canonical fixtures: ${canonicalCasesPath}`)
-  }
-
+  const canonicalCasesPath = join(import.meta.dir, "fixtures/canonical_cases.rs")
   const source = readFileSync(canonicalCasesPath, "utf-8")
   const cases: Array<[string, CanonicalCase]> = []
 
