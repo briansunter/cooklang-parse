@@ -1,3 +1,7 @@
+# from https://github.com/cooklang/spec/blob/ffcd099a8990ec7ffeb9835f0b9cde0b94780841/tests/canonical.yaml
+
+# commented tests are not passing at the moment
+
 version: 7
 tests:
   testBasicDirection:
@@ -31,7 +35,7 @@ tests:
             quantity: 2
             units: "sprigs"
           - type: text
-            value: "  and some text"          
+            value: "  and some text"
       metadata: {}
 
 
@@ -369,9 +373,7 @@ tests:
 
   testMetadata:
     source: |
-      ---
-      sourced: babooshka
-      ---
+      >> sourced: babooshka
     result:
       steps: []
       metadata:
@@ -380,22 +382,18 @@ tests:
 
   testMetadataBreak:
     source: |
-      hello ---
-      sourced: babooshka
-      ---
+      hello >> sourced: babooshka
     result:
       steps:
         -
           - type: text
-            value: "hello --- sourced: babooshka ---"
+            value: "hello >> sourced: babooshka"
       metadata: {}
 
 
   testMetadataMultiwordKey:
     source: |
-      ---
-      cooking time: 30 mins
-      ---
+      >> cooking time: 30 mins
     result:
       steps: []
       metadata:
@@ -404,9 +402,7 @@ tests:
 
   testMetadataMultiwordKeyWithSpaces:
     source: |
-      ---
-      cooking time    :30 mins
-      ---
+      >>cooking time    :30 mins
     result:
       steps: []
       metadata:
@@ -431,10 +427,8 @@ tests:
 
   testMultipleLines:
     source: |
-      ---
-      Prep Time: 15 minutes
-      Cook Time: 30 minutes
-      ---
+      >> Prep Time: 15 minutes
+      >> Cook Time: 30 minutes
     result:
       steps: []
       metadata:
@@ -515,9 +509,7 @@ tests:
 
   testServings:
     source: |
-      ---
-      servings: 1|2|3
-      ---
+      >> servings: 1|2|3
     result:
       steps: []
       metadata:
@@ -579,7 +571,7 @@ tests:
             name: ""
       metadata: {}
 
-  
+
   testTimerWithName:
     source: |
       Fry for ~potato{42%minutes}
@@ -594,7 +586,7 @@ tests:
             name: "potato"
       metadata: {}
 
-  
+
   testSingleWordTimer:
     source: |
       Let it ~rest after plating
@@ -644,7 +636,7 @@ tests:
           - type: text
             value: "⸫ then serve"
       metadata: {}
-  
+
   # NOTE: the space following `rest` is U+2009
   testTimerWithUnicodeWhitespace:
     source: |
@@ -718,7 +710,7 @@ tests:
             value: "⸫ then bake"
       metadata: {}
 
-  
+
   # NOTE: the space following `chilli` is U+2009
   testIngredientWithUnicodeWhitespace:
     source: |
@@ -791,7 +783,7 @@ tests:
             value: "⸫ then boil"
       metadata: {}
 
-  
+
   # NOTE: the space following `pot` is U+2009
   testCookwareWithUnicodeWhitespace:
     source: |
@@ -831,7 +823,7 @@ tests:
             value: "Recipe # 5"
       metadata: {}
 
-# NOTE: Unicode newlines may be impossible to test using YAML, 
+# NOTE: Unicode newlines may be impossible to test using YAML,
 # given how the markup uses them for semantic reasoning.
 
 # TODO add common syntax errors

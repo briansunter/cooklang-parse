@@ -1,0 +1,261 @@
+version: 1
+tests:
+  # === Block Comments ===
+  testBlockCommentInline:
+    source: "Add @flour{250%g} [- block comment -] and mix.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: flour
+            quantity: 250
+            units: g
+          - type: text
+            value: "                     and mix."
+      metadata: {}
+
+  testBlockCommentFullLine:
+    source: "[- removed -]\nAdd @salt.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: salt
+            quantity: "some"
+            units: ""
+          - type: text
+            value: "."
+      metadata: {}
+
+  testBlockCommentMultiLine:
+    source: "[- multi\nline comment -]\nAdd @salt.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: salt
+            quantity: "some"
+            units: ""
+          - type: text
+            value: "."
+      metadata: {}
+
+  # === Notes ===
+  testNoteSingle:
+    source: "> Serve immediately.\n"
+    result:
+      steps: []
+      metadata: {}
+      notes:
+        - "Serve immediately."
+
+  testNoteMultiple:
+    source: "> Note one\n> Note two\n"
+    result:
+      steps: []
+      metadata: {}
+      notes:
+        - "Note one"
+        - "Note two"
+
+  testNoteWithStep:
+    source: "Add @flour{250%g}.\n\n> Chef's tip: sift first\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: flour
+            quantity: 250
+            units: g
+          - type: text
+            value: "."
+      metadata: {}
+      notes:
+        - "Chef's tip: sift first"
+
+  # === Section Headers ===
+  testSectionDoubleEquals:
+    source: "== Prep ==\nChop @onion.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Chop "
+          - type: ingredient
+            name: onion
+            quantity: "some"
+            units: ""
+          - type: text
+            value: "."
+      metadata: {}
+      sections:
+        - "Prep"
+
+  testSectionSingleEquals:
+    source: "= Cooking\nHeat the #pan.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Heat the "
+          - type: cookware
+            name: pan
+            quantity: 1
+            units: ""
+          - type: text
+            value: "."
+      metadata: {}
+      sections:
+        - "Cooking"
+
+  testSectionMultiple:
+    source: "== Prep ==\nChop @onion.\n\n== Cooking ==\nHeat the #pan.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Chop "
+          - type: ingredient
+            name: onion
+            quantity: "some"
+            units: ""
+          - type: text
+            value: "."
+        - - type: text
+            value: "Heat the "
+          - type: cookware
+            name: pan
+            quantity: 1
+            units: ""
+          - type: text
+            value: "."
+      metadata: {}
+      sections:
+        - "Prep"
+        - "Cooking"
+
+  # === Metadata Directives ===
+  testMetadataDirective:
+    source: ">> servings: 4\nAdd @flour{250%g}.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: flour
+            quantity: 250
+            units: g
+          - type: text
+            value: "."
+      metadata:
+        servings: "4"
+
+  testMetadataDirectiveMultiple:
+    source: ">> servings: 4\n>> author: Chef\nAdd @flour{250%g}.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: flour
+            quantity: 250
+            units: g
+          - type: text
+            value: "."
+      metadata:
+        author: "Chef"
+        servings: "4"
+
+  testMetadataDirectiveWithFrontmatter:
+    source: ">> servings: 4\n---\ntitle: Recipe\n---\nAdd @flour{250%g}.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: flour
+            quantity: 250
+            units: g
+          - type: text
+            value: "."
+      metadata:
+        title: "Recipe"
+
+  # === Fixed Quantities ===
+  testFixedQuantityInBraces:
+    source: "Add @salt{=1%tsp}.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: salt
+            quantity: 1
+            units: tsp
+            fixed: true
+          - type: text
+            value: "."
+      metadata: {}
+
+  testFixedQuantityNoUnit:
+    source: "Add @salt{=1}.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: salt
+            quantity: 1
+            units: ""
+            fixed: true
+          - type: text
+            value: "."
+      metadata: {}
+
+  # === Preparation Suffix ===
+  testPreparationSuffix:
+    source: "Add @flour{100%g}(sifted).\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: flour
+            quantity: 100
+            units: g
+            note: "sifted"
+          - type: text
+            value: "."
+      metadata: {}
+
+  testPreparationNoAmount:
+    source: "Add @butter(softened).\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: butter
+            quantity: "some"
+            units: ""
+            note: "softened"
+          - type: text
+            value: "."
+      metadata: {}
+
+  # === Pipe Alias ===
+  testPipeAlias:
+    source: "Add @white wine|wine{100%ml}.\n"
+    result:
+      steps:
+        - - type: text
+            value: "Add "
+          - type: ingredient
+            name: white wine
+            alias: wine
+            quantity: 100
+            units: ml
+          - type: text
+            value: "."
+      metadata: {}

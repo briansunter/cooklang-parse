@@ -6,11 +6,11 @@
 Cooklang {
   // Main recipe structure
   Recipe
-    = Metadata? RecipeItem*
+    = (MetadataDirective | blankLine)* Metadata? RecipeItem*
 
   // Recipe items can be interleaved
   RecipeItem
-    = Section | Note | BlockComment | CommentLine | blankLine | spaceOnly | Step
+    = Section | MetadataDirective | Note | CommentLine | blankLine | spaceOnly | Step
 
   // YAML front matter metadata
   Metadata
@@ -32,7 +32,7 @@ Cooklang {
     = StepLine+
 
   StepLine
-    = ~(hspace* "-- ") ~(hspace* newline) ~sectionStart StepItem+ InlineComment? "\n"?
+    = ~(hspace* "-- ") ~(hspace* newline) ~sectionStart ~MetadataDirective StepItem+ InlineComment? "\n"?
 
   sectionStart
     = "==" | "=" ~"=" ~"@"
@@ -43,7 +43,7 @@ Cooklang {
 
   // Text without special Cooklang syntax
   Text
-    = (~("\n" | "\r\n" | "\r" | "=" &"@" | "@" &ingredientStartChar | "#" &cookwareStartChar | "~" &wordChar | "~" &"{" | "-- " | "[-") any)+
+    = (~("\n" | "\r\n" | "\r" | "@" &ingredientStartChar | "#" &cookwareStartChar | "~" &wordChar | "~" &"{" | "-- ") any)+
 
   ingredientStartChar
     = wordChar | "@" | "&" | "?" | "+" | "-"
@@ -52,12 +52,11 @@ Cooklang {
     = wordChar | "&" | "?" | "+" | "-"
 
   // Ingredient: @name{quantity%unit} or @multi word name{}
-  // Fixed quantity: =@name{quantity%unit}
   Ingredient
-    = FixedIndicator? "@" ingredientModifiers ingredientWord (hspace+ ingredientWord)+ ingredientAmount ingredientPreparation?  -- multi
-    | FixedIndicator? "@" ingredientModifiers ingredientWord ingredientAmount? ingredientPreparation?                           -- single
+    = "@" ingredientModifiers ingredientWord (hspace+ ingredientWord)+ ingredientAmount ingredientNote?  -- multi
+    | "@" ingredientModifiers ingredientWord ingredientAmount? ingredientNote?                           -- single
 
-  ingredientPreparation
+  ingredientNote
     = "(" (~")" ~newline any)* ")"
 
   ingredientModifiers
@@ -69,13 +68,13 @@ Cooklang {
   ingredientAmount
     = "{" (~"}" any)* "}"
 
-  FixedIndicator
-    = "="
-
   // Cookware: #name or #multi word{}
   Cookware
-    = "#" cookwareModifiers cookwareWord (hspace+ cookwareWord)+ cookwareAmount   -- multi
-    | "#" cookwareModifiers cookwareWord cookwareAmount?                         -- single
+    = "#" cookwareModifiers cookwareWord (hspace+ cookwareWord)+ cookwareAmount cookwareNote?   -- multi
+    | "#" cookwareModifiers cookwareWord cookwareAmount? cookwareNote?                         -- single
+
+  cookwareNote
+    = "(" (~")" ~newline any)* ")"
 
   cookwareModifiers
     = ("&" | "?" | "+" | "-")*
@@ -107,6 +106,19 @@ Cooklang {
   noteText
     = (~"\n" ~"\r" ~">" any)+
 
+  // Metadata directive: >> key: value
+  MetadataDirective
+    = hspace* ">>" directiveBody Newline?
+
+  directiveBody
+    = hspace* directiveKey hspace* ":" directiveValue
+
+  directiveKey
+    = (~":" ~newline any)+
+
+  directiveValue
+    = (~newline any)*
+
   // Inline comment: -- comment
   InlineComment
     = "-- " (~Newline any)*
@@ -114,10 +126,6 @@ Cooklang {
   // Full-line comments
   CommentLine
     = hspace* InlineComment Newline?
-
-  // Block comment: [- comment -]
-  BlockComment
-    = "[-" (~"-]" any)+ "-]"
 
   // Component name word char - wordChar plus | for alias syntax
   componentWordChar

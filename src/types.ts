@@ -11,14 +11,21 @@ export interface ParseError {
   severity: "error" | "warning"
 }
 
+export type SectionContent =
+  | { type: "step"; items: RecipeStepItem[] }
+  | { type: "text"; value: string }
+
+export interface RecipeSection {
+  name: string | null
+  content: SectionContent[]
+}
+
 export interface CooklangRecipe {
   metadata: Record<string, unknown>
-  steps: RecipeStepItem[][]
+  sections: RecipeSection[]
   ingredients: RecipeIngredient[]
   cookware: RecipeCookware[]
   timers: RecipeTimer[]
-  sections: string[]
-  notes: string[]
   errors: ParseError[]
   warnings: ParseError[]
 }
@@ -32,17 +39,20 @@ export type RecipeStepItem =
 export interface RecipeIngredient {
   type: "ingredient"
   name: string
+  alias?: string
   quantity: number | string
   units: string
   fixed: boolean
-  preparation?: string
+  note?: string
 }
 
 export interface RecipeCookware {
   type: "cookware"
   name: string
+  alias?: string
   quantity: number | string
   units: string
+  note?: string
 }
 
 export interface RecipeTimer {

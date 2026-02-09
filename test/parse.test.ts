@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { parseCooklang } from '../src/index';
+import { getSteps, getNotes, getSectionNames } from './canonical-helper';
 
 test('parse simple recipe', () => {
   const source = `
@@ -27,7 +28,7 @@ Cook in #pan for ~{20%minutes}.
 
   expect(recipe.cookware).toEqual([{ type: 'cookware', name: 'pan', quantity: 1, units: '' }]);
   expect(recipe.timers).toEqual([{ type: 'timer', name: '', quantity: 20, units: 'minutes' }]);
-  expect(recipe.steps).toHaveLength(1);
+  expect(getSteps(recipe)).toHaveLength(1);
 });
 
 test('parse multi-word ingredients', () => {
@@ -69,9 +70,9 @@ Mix @flour{250%g}.
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.notes).toHaveLength(2);
-  expect(recipe.notes[0]).toBe('This is a note about the recipe.');
-  expect(recipe.notes[1]).toBe('Another note line.');
+  expect(getNotes(recipe)).toHaveLength(2);
+  expect(getNotes(recipe)[0]).toBe('This is a note about the recipe.');
+  expect(getNotes(recipe)[1]).toBe('Another note line.');
 });
 
 test('parse recipe with sections', () => {
@@ -85,7 +86,7 @@ Add @cheese{200%g}.
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.sections).toEqual(['Dough', 'Filling']);
+  expect(getSectionNames(recipe)).toEqual(['Dough', 'Filling']);
 });
 
 test('parse timer with name', () => {
@@ -102,7 +103,7 @@ test('parse timer with name', () => {
 });
 
 test('parse fixed quantity ingredient', () => {
-  const source = `Add =@salt{1%tsp} to taste.`;
+  const source = `Add @salt{=1%tsp} to taste.`;
 
   const recipe = parseCooklang(source);
 
@@ -115,8 +116,8 @@ test('parse inline comments are stripped from output', () => {
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.steps).toHaveLength(1);
-  expect(recipe.steps[0]!.every(i => i.type !== 'text' || !i.value.includes('This is a comment'))).toBe(true);
+  expect(getSteps(recipe)).toHaveLength(1);
+  expect(getSteps(recipe)[0]!.every(i => i.type !== 'text' || !i.value.includes('This is a comment'))).toBe(true);
 });
 
 test('parse empty recipe', () => {
@@ -127,7 +128,7 @@ test('parse empty recipe', () => {
   expect(recipe.ingredients).toHaveLength(0);
   expect(recipe.cookware).toHaveLength(0);
   expect(recipe.timers).toHaveLength(0);
-  expect(recipe.steps).toHaveLength(0);
+  expect(getSteps(recipe)).toHaveLength(0);
 });
 
 test('full pancake recipe', async () => {
@@ -145,7 +146,7 @@ test('full pancake recipe', async () => {
   expect(recipe.timers.length).toBeGreaterThan(0);
   expect(recipe.timers[0]!.units).toBe('minutes');
 
-  expect(recipe.steps.length).toBeGreaterThan(0);
+  expect(getSteps(recipe).length).toBeGreaterThan(0);
 });
 
 test('parse ingredient with unit', () => {
@@ -170,7 +171,7 @@ test('parse ingredient with unit', () => {
   });
 });
 
-test('parse block comments', () => {
+test('parse block comments are transparent', () => {
   const source = `
 Mix @flour{250%g}.
 [- This is a block comment -]
@@ -180,7 +181,18 @@ Add @eggs{3}.
   const recipe = parseCooklang(source);
 
   expect(recipe.errors).toHaveLength(0);
-  expect(recipe.steps).toHaveLength(2);
+  // Block comment on its own line becomes blank line (spaces), so still 2 steps
+  expect(getSteps(recipe)).toHaveLength(2);
+});
+
+test('block comment inline does not split step', () => {
+  const source = `Add @flour{250%g} [- block comment -] and mix.\n`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.errors).toHaveLength(0);
+  // Block comment within a line is transparent — single step
+  expect(getSteps(recipe)).toHaveLength(1);
 });
 
 test('parse multiple timers in one step', () => {
@@ -270,7 +282,7 @@ test('recipe with only whitespace returns empty', () => {
 
   expect(recipe.ingredients).toHaveLength(0);
   expect(recipe.cookware).toHaveLength(0);
-  expect(recipe.steps).toHaveLength(0);
+  expect(getSteps(recipe)).toHaveLength(0);
 });
 
 test('step items include full content', () => {
@@ -278,8 +290,8 @@ test('step items include full content', () => {
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.steps).toHaveLength(1);
-  const textItems = recipe.steps[0]!.filter(i => i.type === 'text');
+  expect(getSteps(recipe)).toHaveLength(1);
+  const textItems = getSteps(recipe)[0]!.filter(i => i.type === 'text');
   expect(textItems.some(t => t.type === 'text' && t.value.includes('Mix'))).toBe(true);
   expect(textItems.some(t => t.type === 'text' && t.value.includes('in the'))).toBe(true);
 });
@@ -289,9 +301,9 @@ test('inline comments are stripped from steps', () => {
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.steps).toHaveLength(1);
+  expect(getSteps(recipe)).toHaveLength(1);
   // Inline comments are stripped from public output
-  const textItems = recipe.steps[0]!.filter(i => i.type === 'text');
+  const textItems = getSteps(recipe)[0]!.filter(i => i.type === 'text');
   expect(textItems.some(t => t.type === 'text' && t.value.includes('Mix'))).toBe(true);
 });
 
@@ -356,16 +368,16 @@ Add @tomatoes{800%g} and simmer for ~simmer{20%minutes}.
 
 [- This is a block comment about the recipe -]
 
-Serve hot with =@garnish{1%tbsp} of fresh herbs.
+Serve hot with @garnish{=1%tbsp} of fresh herbs.
 `;
 
   const recipe = parseCooklang(source);
 
   expect(recipe.metadata.title).toBe('Complex Recipe');
   expect(recipe.metadata.servings).toBe(4);
-  expect(recipe.sections).toContain('Prep');
-  expect(recipe.sections).toContain('Cooking');
-  expect(recipe.notes).toEqual(['This is a preparatory note.']);
+  expect(getSectionNames(recipe)).toContain('Prep');
+  expect(getSectionNames(recipe)).toContain('Cooking');
+  expect(getNotes(recipe)).toEqual(['This is a preparatory note.']);
   expect(recipe.ingredients.length).toBeGreaterThanOrEqual(3);
   expect(recipe.ingredients.some(i => i.name === 'onions')).toBe(true);
   expect(recipe.ingredients.some(i => i.name === 'garlic')).toBe(true);
@@ -374,7 +386,7 @@ Serve hot with =@garnish{1%tbsp} of fresh herbs.
   expect(recipe.cookware.some(c => c.name === 'large pan')).toBe(true);
   expect(recipe.timers.length).toBeGreaterThanOrEqual(1);
   expect(recipe.timers.some(t => t.name === 'simmer')).toBe(true);
-  expect(recipe.steps.length).toBeGreaterThanOrEqual(2);
+  expect(getSteps(recipe).length).toBeGreaterThanOrEqual(2);
 });
 
 test('parse multiword cookware', () => {
@@ -407,10 +419,10 @@ Mix @flour{250%g}.
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.notes).toHaveLength(3);
-  expect(recipe.notes[0]).toBe('First note.');
-  expect(recipe.notes[1]).toBe('Second note.');
-  expect(recipe.notes[2]).toBe('Third note.');
+  expect(getNotes(recipe)).toHaveLength(3);
+  expect(getNotes(recipe)[0]).toBe('First note.');
+  expect(getNotes(recipe)[1]).toBe('Second note.');
+  expect(getNotes(recipe)[2]).toBe('Third note.');
 });
 
 test('parse empty ingredient amount braces', () => {
@@ -483,7 +495,7 @@ Step three.`;
   const recipe = parseCooklang(source);
 
   // Steps are separated by blank lines
-  expect(recipe.steps.length).toBeGreaterThanOrEqual(1);
+  expect(getSteps(recipe).length).toBeGreaterThanOrEqual(1);
 });
 
 test('parse recipe with no ingredients', () => {
@@ -492,7 +504,7 @@ test('parse recipe with no ingredients', () => {
   const recipe = parseCooklang(source);
 
   expect(recipe.ingredients).toHaveLength(0);
-  expect(recipe.steps).toHaveLength(1);
+  expect(getSteps(recipe)).toHaveLength(1);
 });
 
 test('parse recipe with no cookware', () => {
@@ -516,7 +528,7 @@ test('step preserves original text in items', () => {
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.steps[0]).toEqual([
+  expect(getSteps(recipe)[0]).toEqual([
     { type: 'text', value: 'Carefully fold in the whipped cream.' },
   ]);
 });
@@ -535,7 +547,7 @@ Plate and serve.
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.sections).toEqual(['Prep', 'Cooking', 'Serving']);
+  expect(getSectionNames(recipe)).toEqual(['Prep', 'Cooking', 'Serving']);
 });
 
 test('parse metadata with complex arrays', () => {
@@ -585,7 +597,7 @@ Mix @flour{250%g}.
 
   expect(recipe.metadata.title).toBe('Pancakes');
   expect(recipe.metadata.servings).toBe(4);
-  const textItems = recipe.steps[0]!.filter(i => i.type === 'text');
+  const textItems = getSteps(recipe)[0]!.filter(i => i.type === 'text');
   expect(textItems.some(t => t.type === 'text' && t.value.includes('Mix'))).toBe(true);
 });
 
@@ -599,9 +611,9 @@ Step two.
   const recipe = parseCooklang(source);
 
   expect(recipe.metadata.servings).toBe(2);
-  expect(recipe.steps).toHaveLength(2);
-  const step1Text = recipe.steps[0]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');
-  const step2Text = recipe.steps[1]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');
+  expect(getSteps(recipe)).toHaveLength(2);
+  const step1Text = getSteps(recipe)[0]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');
+  const step2Text = getSteps(recipe)[1]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');
   expect(step1Text).toBe('Step one.');
   expect(step2Text).toBe('Step two.');
 });
@@ -617,8 +629,8 @@ Saute in #pan.
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.sections).toEqual(['Prep', 'Cook']);
-  expect(recipe.steps.length).toBeGreaterThanOrEqual(2);
+  expect(getSectionNames(recipe)).toEqual(['Prep', 'Cook']);
+  expect(getSteps(recipe).length).toBeGreaterThanOrEqual(2);
 });
 
 test('invalid YAML frontmatter becomes warning and is ignored', () => {
@@ -647,7 +659,7 @@ test('parse single-word timer without braces', () => {
   expect(recipe.timers).toEqual([{ type: 'timer', name: 'rest', quantity: '', units: '' }]);
 });
 
-test('parse ingredient with preparation suffix', () => {
+test('parse ingredient with note suffix', () => {
   const source = `Add @flour{100%g}(sifted) to the bowl.`;
 
   const recipe = parseCooklang(source);
@@ -658,12 +670,27 @@ test('parse ingredient with preparation suffix', () => {
     name: 'flour',
     quantity: 100,
     units: 'g',
-    preparation: 'sifted',
+    note: 'sifted',
     fixed: false,
   });
 });
 
-test('parse ingredient with preparation and no amount', () => {
+test('parse cookware with note', () => {
+  const source = `Heat in #pan(large) until hot.`;
+
+  const recipe = parseCooklang(source);
+
+  expect(recipe.cookware).toHaveLength(1);
+  expect(recipe.cookware[0]).toEqual({
+    type: 'cookware',
+    name: 'pan',
+    quantity: 1,
+    units: '',
+    note: 'large',
+  });
+});
+
+test('parse ingredient with note and no amount', () => {
   const source = `Add @butter(softened) to the mix.`;
 
   const recipe = parseCooklang(source);
@@ -674,7 +701,7 @@ test('parse ingredient with preparation and no amount', () => {
     name: 'butter',
     quantity: 'some',
     units: '',
-    preparation: 'softened',
+    note: 'softened',
     fixed: false,
   });
 });
@@ -732,6 +759,7 @@ test('parse extended ingredient modifier syntax', () => {
   expect(recipe.ingredients[2]).toEqual({
     type: 'ingredient',
     name: 'white wine',
+    alias: 'wine',
     quantity: 'some',
     units: '',
     fixed: false,
@@ -743,10 +771,10 @@ test('grammar parse error returns error', () => {
 
   expect(recipe.errors).toHaveLength(1);
   expect(recipe.errors[0]!.severity).toBe('error');
-  expect(recipe.steps).toHaveLength(0);
+  expect(getSteps(recipe)).toHaveLength(0);
 });
 
-test('both directives and frontmatter metadata merge', () => {
+test('directives with frontmatter: only [mode]/[define] extracted', () => {
   const source = `---
 title: Pancakes
 ---
@@ -757,7 +785,8 @@ Mix @flour{250%g}.
   const recipe = parseCooklang(source);
 
   expect(recipe.metadata.title).toBe('Pancakes');
-  expect(recipe.metadata.author).toBe('Chef');
+  // Non-special directives are stripped but not added to metadata when frontmatter exists
+  expect(recipe.metadata.author).toBeUndefined();
 });
 
 test('non-object YAML frontmatter produces warning', () => {
@@ -795,33 +824,30 @@ Mix @flour{250%g}.
   const recipe = parseCooklang(source);
 
   expect(recipe.metadata.tags).toBe('[unclosed');
-  expect(recipe.steps).toHaveLength(1);
+  expect(getSteps(recipe)).toHaveLength(1);
 });
 
-test('space-separated ingredient amount without percent', () => {
+test('amount without percent separator keeps everything as quantity', () => {
   const source = `Add @flour{2 cups}.`;
 
   const recipe = parseCooklang(source);
 
   expect(recipe.ingredients).toHaveLength(1);
-  expect(recipe.ingredients[0]).toEqual({
-    type: 'ingredient',
-    name: 'flour',
-    quantity: 2,
-    units: 'cups',
-    fixed: false,
-  });
+  expect(recipe.ingredients[0]!.name).toBe('flour');
+  // Without %, entire content is quantity (matching cooklang-rs canonical behavior)
+  expect(recipe.ingredients[0]!.quantity).toBe("2 cups");
+  expect(recipe.ingredients[0]!.units).toBe('');
 });
 
-test('non-numeric multi-word amount treated as quantity and unit', () => {
+test('multi-word amount without percent stays as quantity string', () => {
   const source = `Add @flour{some amount}.`;
 
   const recipe = parseCooklang(source);
 
   expect(recipe.ingredients).toHaveLength(1);
   expect(recipe.ingredients[0]!.name).toBe('flour');
-  expect(recipe.ingredients[0]!.quantity).toBe('some');
-  expect(recipe.ingredients[0]!.units).toBe('amount');
+  expect(recipe.ingredients[0]!.quantity).toBe('some amount');
+  expect(recipe.ingredients[0]!.units).toBe('');
 });
 
 // --- Error handling tests ---

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { parseCooklang } from "../src/index"
+import { getSteps, getNotes, getSectionNames } from "./canonical-helper"
 
 test("spec parity: comment-only recipe is empty", () => {
   const source = `-- "empty" recipe
@@ -14,8 +15,8 @@ test("spec parity: comment-only recipe is empty", () => {
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.sections).toEqual([])
-  expect(recipe.steps).toEqual([])
+  expect(getSectionNames(recipe)).toEqual([])
+  expect(getSteps(recipe)).toEqual([])
   expect(recipe.errors).toEqual([])
 })
 
@@ -34,8 +35,8 @@ test("spec parity: empty section content with only comments", () => {
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.sections).toEqual(["Section name to force the section"])
-  expect(recipe.steps).toEqual([])
+  expect(getSectionNames(recipe)).toEqual(["Section name to force the section"])
+  expect(getSteps(recipe)).toEqual([])
   expect(recipe.errors).toEqual([])
 })
 
@@ -47,9 +48,9 @@ another
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.steps).toHaveLength(2)
-  const step1Text = recipe.steps[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
-  const step2Text = recipe.steps[1]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  expect(getSteps(recipe)).toHaveLength(2)
+  const step1Text = getSteps(recipe)[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  const step2Text = getSteps(recipe)[1]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
   expect(step1Text).toBe("a step")
   expect(step2Text).toBe("another")
 })
@@ -64,14 +65,14 @@ another step
   const recipe = parseCooklang(source)
 
   expect(recipe.metadata.meta).toBe("val")
-  const stepTexts = recipe.steps.map(s =>
+  const stepTexts = getSteps(recipe).map(s =>
     s.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
   )
   expect(stepTexts).toEqual(["a step", "another step"])
-  expect(recipe.sections).toEqual(["section"])
+  expect(getSectionNames(recipe)).toEqual(["section"])
 })
 
-test("spec parity: [mode] components suppresses steps until switched", () => {
+test("spec parity: [mode] directives are metadata (components mode is extension-only)", () => {
   const source = `>> [mode]: components
 @igr
 >> [mode]: steps
@@ -81,12 +82,15 @@ step
 
   const recipe = parseCooklang(source)
 
+  // Last [mode] directive wins
   expect(recipe.metadata["[mode]"]).toBe("steps")
-  expect(recipe.sections).toEqual(["section"])
-  const stepTexts = recipe.steps.map(s =>
+  expect(getSectionNames(recipe)).toEqual(["section"])
+  // In canonical/grammar-based parsing, [mode]: components doesn't suppress steps
+  // (that behavior requires the extension to be enabled)
+  const stepTexts = getSteps(recipe).map(s =>
     s.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
   )
-  expect(stepTexts).toEqual(["step"])
+  expect(stepTexts).toEqual(["", "step"])
 })
 
 test("spec parity: valid YAML frontmatter parses", () => {
@@ -107,7 +111,7 @@ This is a test recipe with valid YAML frontmatter.
   expect(recipe.ingredients.map(i => i.name)).toEqual(["eggs", "butter"])
 })
 
-test("spec parity: preparation suffix on ingredient", () => {
+test("spec parity: note suffix on ingredient", () => {
   const source = `Add @flour{100%g}(sifted) to bowl.\n`
 
   const recipe = parseCooklang(source)
@@ -115,7 +119,7 @@ test("spec parity: preparation suffix on ingredient", () => {
   expect(recipe.ingredients[0]!.name).toBe("flour")
   expect(recipe.ingredients[0]!.quantity).toBe(100)
   expect(recipe.ingredients[0]!.units).toBe("g")
-  expect(recipe.ingredients[0]!.preparation).toBe("sifted")
+  expect(recipe.ingredients[0]!.note).toBe("sifted")
 })
 
 test("spec parity: fixed quantity inside braces", () => {
@@ -145,8 +149,8 @@ test("spec parity: comment requires space after dashes", () => {
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.steps).toHaveLength(1)
-  const textContent = recipe.steps[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  expect(getSteps(recipe)).toHaveLength(1)
+  const textContent = getSteps(recipe)[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
   expect(textContent).toContain("text--more text")
 })
 

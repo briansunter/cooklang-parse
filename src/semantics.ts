@@ -6,6 +6,7 @@ import type {
   ParseError,
   RecipeCookware,
   RecipeIngredient,
+  RecipeSection,
   RecipeStepItem,
   RecipeTimer,
   SourcePosition,
@@ -48,27 +49,18 @@ function parseQuantity(raw: string): string | number {
 
 /**
  * Split an amount string into quantity and units.
- * Formats: "qty%unit", "qty unit" (unit >= 3 chars), or bare quantity.
+ * Only `%` is the qty/unit separator (matching cooklang-rs canonical behavior).
  * A leading `=` (fixed indicator) is stripped.
  */
 function parseAmount(raw: string): { quantity: string | number; units: string } {
   const amount = raw.trim().replace(/^=\s*/, "")
 
-  // "%" is the canonical qty/unit separator
+  // "%" is the only qty/unit separator (cooklang-rs canonical mode)
   const pctIdx = amount.lastIndexOf("%")
   if (pctIdx !== -1) {
     return {
       quantity: parseQuantity(amount.slice(0, pctIdx).trim()),
       units: amount.slice(pctIdx + 1).trim(),
-    }
-  }
-
-  // Space separator: "100 grams" (unit must be >= 3 chars to avoid "1 ½" splits)
-  const spaceMatch = amount.match(/^(\S+)\s+(\S{3,}.*)$/)
-  if (spaceMatch?.[1] && spaceMatch[2]) {
-    return {
-      quantity: parseQuantity(spaceMatch[1]),
-      units: spaceMatch[2].trim(),
     }
   }
 
@@ -79,38 +71,46 @@ function parseAmount(raw: string): { quantity: string | number; units: string } 
 // Component parsing (ingredients, cookware, timers)
 // ---------------------------------------------------------------------------
 
-/** Extract name and optional brace-delimited amount from a component token. */
-function parseComponent(raw: string): { name: string; amountContent?: string } {
+/** Extract name, optional alias, and optional brace-delimited amount from a component token. */
+function parseComponent(raw: string): { name: string; alias?: string; amountContent?: string } {
   const trimmed = raw.trim()
   const braceStart = trimmed.endsWith("}") ? trimmed.lastIndexOf("{") : -1
   const rawName = braceStart === -1 ? trimmed : trimmed.slice(0, braceStart).trim()
-  const name = rawName.replace(/\|.*/, "").trim() // strip pipe alias
-  if (braceStart === -1) return { name }
-  return { name, amountContent: trimmed.slice(braceStart + 1, -1) }
+  const pipeIdx = rawName.indexOf("|")
+  const name = pipeIdx === -1 ? rawName : rawName.slice(0, pipeIdx).trim()
+  const alias = pipeIdx === -1 ? undefined : rawName.slice(pipeIdx + 1).trim() || undefined
+  if (braceStart === -1) return { name, alias }
+  return { name, alias, amountContent: trimmed.slice(braceStart + 1, -1) }
 }
 
 function convertIngredient(token: string): RecipeIngredient {
   const trimmed = token.trim()
-  const stripped = trimmed.replace(/^=\s*/, "").replace(/^[@&?+-]+/, "")
+  const stripped = trimmed.replace(/^[@&?+-]+/, "")
 
-  // Extract trailing (preparation)
-  const prepMatch = stripped.match(/\(([^)]*)\)$/)
-  const preparation = prepMatch?.[1] || undefined
-  const body = prepMatch ? stripped.slice(0, prepMatch.index).trimEnd() : stripped
+  // Extract trailing (note)
+  const noteMatch = stripped.match(/\(([^)]*)\)$/)
+  const note = noteMatch?.[1] || undefined
+  const body = noteMatch ? stripped.slice(0, noteMatch.index).trimEnd() : stripped
 
-  const { name, amountContent } = parseComponent(body)
-  const fixed = trimmed.startsWith("=") || amountContent?.trimStart().startsWith("=") === true
+  const { name, alias, amountContent } = parseComponent(body)
+  const fixed = amountContent?.trimStart().startsWith("=") === true
   const content = amountContent?.trim()
   const amt = content ? parseAmount(content) : { quantity: "some", units: "" }
-  return { type: "ingredient", name, ...amt, fixed, preparation }
+  return { type: "ingredient", name, alias, ...amt, fixed, note }
 }
 
 function convertCookware(token: string): RecipeCookware {
-  const { name, amountContent } = parseComponent(token.trim().replace(/^[#&?+-]+/, ""))
+  const stripped = token.trim().replace(/^[#&?+-]+/, "")
+  // Extract trailing (note)
+  const noteMatch = stripped.match(/\(([^)]*)\)$/)
+  const note = noteMatch?.[1] || undefined
+  const bodyStr = noteMatch ? stripped.slice(0, noteMatch.index).trimEnd() : stripped
+
+  const { name, alias, amountContent } = parseComponent(bodyStr)
   const rawQty = amountContent?.trim()
   const num = rawQty ? parseFloat(rawQty) : NaN
   const quantity: number | string = rawQty ? (Number.isNaN(num) ? rawQty : num) : 1
-  return { type: "cookware", name, quantity, units: "" }
+  return { type: "cookware", name, alias, quantity, units: "", note }
 }
 
 function convertTimer(token: string): RecipeTimer {
@@ -190,79 +190,15 @@ function parseYamlFrontmatter(content: string, yamlStartOffset: number): YamlPar
 }
 
 // ---------------------------------------------------------------------------
-// Metadata directives (>> key: value)
+// Block comment stripping
 // ---------------------------------------------------------------------------
 
-const directiveRegex = /^\s*>>\s*([^:]+?)\s*:\s*(.*)\s*$/
-
-/**
- * Strip `>> key: value` directive lines from source before grammar matching.
- * Returns directive metadata, stripped source, and an offset map that
- * translates positions in stripped source back to the original.
- */
-function extractMetadataDirectives(source: string): {
-  metadata: Record<string, unknown>
-  strippedSource: string
-  offsetMap: number[]
-} {
-  const lines = source.split(/\r\n|\n|\r/)
-  const metadata: Record<string, unknown> = {}
-  const stripped: string[] = []
-  const offsetMap: number[] = []
-  let componentsMode = false
-  let originalOffset = 0
-  let strippedOffset = 0
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? ""
-    const match = line.match(directiveRegex)
-
-    if (match) {
-      // Directive line — extract key/value, emit empty line to preserve line count
-      const key = (match[1] ?? "").trim()
-      const value = (match[2] ?? "").trim()
-      try {
-        const parsed = value ? YAML.parse(value) : undefined
-        metadata[key] = parsed === undefined ? value || null : parsed
-      } catch {
-        metadata[key] = value
-      }
-      stripped.push("")
-      offsetMap[strippedOffset] = originalOffset + line.length
-      strippedOffset += 1
-
-      // [mode]/[define] directives switch to components-only mode
-      const lowerKey = key.toLowerCase()
-      if (lowerKey === "[mode]" || lowerKey === "[define]") {
-        const lower = value.toLowerCase()
-        componentsMode = lower === "components" || lower === "ingredients"
-      }
-    } else {
-      // Regular line — copy through (blank if in components mode)
-      const content = componentsMode ? "" : line
-      for (let j = 0; j < content.length; j++) {
-        offsetMap[strippedOffset + j] = originalOffset + j
-      }
-      stripped.push(content)
-      strippedOffset += content.length + 1 // +1 for newline
-      offsetMap[strippedOffset - 1] = originalOffset + line.length
-    }
-
-    // Advance past the line content + its newline separator
-    originalOffset += line.length
-    if (i < lines.length - 1) {
-      originalOffset += source[originalOffset] === "\r" && source[originalOffset + 1] === "\n" ? 2 : 1
-    }
-  }
-
-  return { metadata, strippedSource: stripped.join("\n"), offsetMap }
-}
-
-/** Map an offset in stripped source back to the original source. */
-function mapOffset(off: number, map: number[]): number {
-  if (map.length === 0) return off
-  if (off < map.length) return map[off] ?? off
-  return (map[map.length - 1] ?? map.length - 1) + (off - map.length + 1)
+/** Strip block comments [- ... -] from source, replacing with spaces to preserve offsets. */
+function stripBlockComments(source: string): string {
+  return source.replace(/\[-[\s\S]*?-\]/g, match => {
+    // Replace each character with a space, but preserve newlines
+    return match.replace(/[^\n]/g, " ")
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -283,20 +219,25 @@ function mergeConsecutiveTexts(items: RecipeStepItem[]): RecipeStepItem[] {
   return result
 }
 
-/** Collect unique items of a given type across all steps. */
+/** Collect unique items of a given type across all sections. */
 function collectUnique<T extends RecipeStepItem>(
-  steps: RecipeStepItem[][],
+  sections: RecipeSection[],
   type: string,
   key: (item: T) => string,
 ): T[] {
   const seen = new Set<string>()
   const result: T[] = []
-  for (const item of steps.flat()) {
-    if (item.type !== type) continue
-    const k = key(item as T)
-    if (!seen.has(k)) {
-      seen.add(k)
-      result.push(item as T)
+  for (const section of sections) {
+    for (const content of section.content) {
+      if (content.type !== "step") continue
+      for (const item of content.items) {
+        if (item.type !== type) continue
+        const k = key(item as T)
+        if (!seen.has(k)) {
+          seen.add(k)
+          result.push(item as T)
+        }
+      }
     }
   }
   return result
@@ -306,26 +247,52 @@ function collectUnique<T extends RecipeStepItem>(
 // Ohm semantic actions
 // ---------------------------------------------------------------------------
 
+interface DirectiveNode {
+  type: "directive"
+  key: string
+  rawValue: string
+}
+
+type SemanticItem =
+  | { kind: "step"; items: RecipeStepItem[] }
+  | { kind: "section"; name: string }
+  | { kind: "note"; text: string }
+
 interface SemanticResult {
   frontmatter: string | null
-  steps: RecipeStepItem[][]
-  sections: string[]
-  notes: string[]
+  directives: DirectiveNode[]
+  items: SemanticItem[]
 }
 
 const semantics = grammar.createSemantics()
 
 semantics.addOperation("toAST", {
-  Recipe(_metadata, items) {
+  Recipe(leading, _metadata, items) {
     const frontmatter: string | null = _metadata.numChildren > 0 ? _metadata.child(0).toAST() : null
-    const nodes = items.children.map(c => c.toAST()).filter(Boolean)
-    const tagged = nodes.filter(isASTNode)
-    return {
-      frontmatter,
-      steps: nodes.filter(Array.isArray).filter(a => a.length > 0),
-      sections: tagged.filter(n => n.type === "section").map(n => n.name),
-      notes: tagged.filter(n => n.type === "note").map(n => n.text),
+
+    // Collect directives from both leading section and body
+    const directives: DirectiveNode[] = []
+    for (const child of leading.children) {
+      const result = child.toAST()
+      if (isRecord(result) && result.type === "directive") {
+        directives.push(result as unknown as DirectiveNode)
+      }
     }
+
+    const orderedItems: SemanticItem[] = []
+    for (const node of items.children.map(c => c.toAST()).filter(Boolean)) {
+      if (isRecord(node) && node.type === "directive") {
+        directives.push(node as unknown as DirectiveNode)
+      } else if (Array.isArray(node) && node.length > 0) {
+        orderedItems.push({ kind: "step", items: node })
+      } else if (isASTNode(node) && node.type === "section") {
+        orderedItems.push({ kind: "section", name: node.name })
+      } else if (isASTNode(node) && node.type === "note") {
+        orderedItems.push({ kind: "note", text: node.text })
+      }
+    }
+
+    return { frontmatter, directives, items: orderedItems }
   },
 
   Metadata(_dash1, yaml, _dash2) {
@@ -364,6 +331,14 @@ semantics.addOperation("toAST", {
     return { type: "note", text: noteContents.sourceString.trim() }
   },
 
+  MetadataDirective(_hspace, _arrows, body, _newline) {
+    return body.toAST()
+  },
+
+  directiveBody(_hspace1, key, _hspace2, _colon, value) {
+    return { type: "directive", key: key.sourceString.trim(), rawValue: value.sourceString.trim() }
+  },
+
   _nonterminal(...children) {
     if (children.length !== 1) return null
     return children[0]?.toAST() ?? null
@@ -379,29 +354,27 @@ semantics.addOperation("toAST", {
 // ---------------------------------------------------------------------------
 
 export function parseCooklang(source: string): CooklangRecipe {
-  const directives = extractMetadataDirectives(source)
-  const matchResult = grammar.match(directives.strippedSource)
+  // Only pre-processing: strip block comments
+  const withoutBlockComments = stripBlockComments(source)
+  const matchResult = grammar.match(withoutBlockComments)
 
   if (matchResult.failed()) {
     const pos = matchResult.getInterval().getLineAndColumn()
-    const mappedOffset = mapOffset(pos.offset, directives.offsetMap)
     const shortMsg = (matchResult.shortMessage || "Parse error").replace(
       /^Line \d+, col \d+:\s*/,
       "",
     )
     return {
-      metadata: directives.metadata,
-      steps: [],
+      metadata: {},
+      sections: [],
       ingredients: [],
       cookware: [],
       timers: [],
-      sections: [],
-      notes: [],
       errors: [
         {
           message: shortMsg,
           shortMessage: shortMsg,
-          position: { line: pos.lineNum, column: pos.colNum, offset: mappedOffset },
+          position: { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
           severity: "error",
         },
       ],
@@ -410,6 +383,8 @@ export function parseCooklang(source: string): CooklangRecipe {
   }
 
   const result: SemanticResult = semantics(matchResult).toAST()
+
+  // Parse frontmatter YAML if present
   const yamlStartOffset = result.frontmatter ? source.indexOf("---") + 4 : 0
   const yaml = result.frontmatter ? parseYamlFrontmatter(result.frontmatter, yamlStartOffset) : null
   const warnings: ParseError[] = []
@@ -421,18 +396,48 @@ export function parseCooklang(source: string): CooklangRecipe {
     })
   }
 
-  const metadata = { ...yaml?.data, ...directives.metadata }
+  // Build metadata: frontmatter + directives (only when no frontmatter)
+  const directiveMetadata: Record<string, unknown> = {}
+  if (!result.frontmatter) {
+    for (const dir of result.directives) {
+      try {
+        const parsed = dir.rawValue ? YAML.parse(dir.rawValue) : undefined
+        directiveMetadata[dir.key] = parsed === undefined ? dir.rawValue || null : parsed
+      } catch {
+        directiveMetadata[dir.key] = dir.rawValue
+      }
+    }
+  }
+  const metadata = { ...(yaml?.data ?? {}), ...directiveMetadata }
+
+  // Build sections from ordered semantic items
+  const allSections: RecipeSection[] = []
+  let currentSection: RecipeSection = { name: null, content: [] }
+  allSections.push(currentSection)
+
+  for (const item of result.items) {
+    if (item.kind === "section") {
+      currentSection = { name: item.name, content: [] }
+      allSections.push(currentSection)
+    } else if (item.kind === "step") {
+      currentSection.content.push({ type: "step", items: item.items })
+    } else if (item.kind === "note") {
+      currentSection.content.push({ type: "text", value: item.text })
+    }
+  }
+
+  // Filter out empty implicit (unnamed) sections to match cooklang-rs behavior
+  const sections = allSections.filter(s => s.name !== null || s.content.length > 0)
+
   const keyFn = (i: { name: string; quantity: string | number; units: string }) =>
     `${i.name}|${i.quantity}|${i.units}`
 
   return {
     metadata,
-    steps: result.steps,
-    ingredients: collectUnique<RecipeIngredient>(result.steps, "ingredient", keyFn),
-    cookware: collectUnique<RecipeCookware>(result.steps, "cookware", i => i.name),
-    timers: collectUnique<RecipeTimer>(result.steps, "timer", keyFn),
-    sections: result.sections,
-    notes: result.notes,
+    sections,
+    ingredients: collectUnique<RecipeIngredient>(sections, "ingredient", keyFn),
+    cookware: collectUnique<RecipeCookware>(sections, "cookware", i => i.name),
+    timers: collectUnique<RecipeTimer>(sections, "timer", keyFn),
     errors: [],
     warnings,
   }

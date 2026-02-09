@@ -70,12 +70,12 @@ test("legacy frontmatter metadata remains supported", () => {
   })
 })
 
-test("leading metadata directives merge with frontmatter metadata", () => {
+test("leading metadata directives restricted with frontmatter", () => {
   const source = `>> servings: 4\n---\ntitle: Pancakes\n---\nAdd @flour{250%g}.\n`
   const result = parseToCanonical(source)
 
+  // Non-special directives are stripped but not added to metadata when frontmatter exists
   expect(result.metadata).toEqual({
-    servings: "4",
     title: "Pancakes",
   })
 })
@@ -90,12 +90,13 @@ test("canonical: non-ASCII quantity preserved as string", () => {
   ])
 })
 
-test("canonical: space-separated amount without percent", () => {
+test("canonical: amount without percent keeps everything as quantity", () => {
   const result = parseToCanonical("Add @flour{2 tablespoons}.\n")
 
+  // Without %, entire content is quantity (cooklang-rs canonical: only % separates qty/unit)
   expect(result.steps[0]).toEqual([
     { type: "text", value: "Add " },
-    { type: "ingredient", name: "flour", quantity: 2, units: "tablespoons" },
+    { type: "ingredient", name: "flour", quantity: "2 tablespoons", units: "" },
     { type: "text", value: "." },
   ])
 })

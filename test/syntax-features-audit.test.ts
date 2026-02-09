@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "bun:test"
 import { parseCooklang } from "../src/index"
+import { getSteps, getNotes, getSectionNames } from "./canonical-helper"
 
 function noErrors(input: string) {
   const r = parseCooklang(input)
@@ -62,8 +63,8 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
       expect(at(r.ingredients, 0).quantity).toBe("some")
     })
 
-    it("Fixed quantity (prefix): =@salt{1%pinch}", () => {
-      const r = noErrors("Add =@salt{1%pinch}")
+    it("Fixed quantity (in braces only): @salt{=1%pinch}", () => {
+      const r = noErrors("Add @salt{=1%pinch}")
       expect(at(r.ingredients, 0).name).toBe("salt")
       expect(at(r.ingredients, 0).quantity).toBe(1)
       expect(at(r.ingredients, 0).units).toBe("pinch")
@@ -78,18 +79,18 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
       expect(at(r.ingredients, 0).fixed).toBe(true)
     })
 
-    it("Preparation suffix: @flour{100%g}(sifted)", () => {
+    it("Note suffix: @flour{100%g}(sifted)", () => {
       const r = noErrors("Add @flour{100%g}(sifted)")
       expect(at(r.ingredients, 0).name).toBe("flour")
       expect(at(r.ingredients, 0).quantity).toBe(100)
       expect(at(r.ingredients, 0).units).toBe("g")
-      expect(at(r.ingredients, 0).preparation).toBe("sifted")
+      expect(at(r.ingredients, 0).note).toBe("sifted")
     })
 
-    it("Preparation (no amount): @butter(softened)", () => {
+    it("Note (no amount): @butter(softened)", () => {
       const r = noErrors("Add @butter(softened)")
       expect(at(r.ingredients, 0).name).toBe("butter")
-      expect(at(r.ingredients, 0).preparation).toBe("softened")
+      expect(at(r.ingredients, 0).note).toBe("softened")
     })
 
     it("Alias syntax: @white wine|wine{100%ml}", () => {
@@ -142,11 +143,12 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
       expect(at(r.ingredients, 0).units).toBe("cup")
     })
 
-    it("Space-separated amount: @flour{2 cups}", () => {
+    it("Amount without %: @flour{2 cups} keeps as quantity string", () => {
       const r = noErrors("Add @flour{2 cups}")
       expect(at(r.ingredients, 0).name).toBe("flour")
-      expect(at(r.ingredients, 0).quantity).toBe(2)
-      expect(at(r.ingredients, 0).units).toBe("cups")
+      // Without %, entire content is quantity (cooklang-rs canonical: only % separates qty/unit)
+      expect(at(r.ingredients, 0).quantity).toBe("2 cups")
+      expect(at(r.ingredients, 0).units).toBe("")
     })
 
     it("Unicode names: @crème fraîche{2%tbsp}", () => {
@@ -229,10 +231,11 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
       expect(r.metadata.servings).toBe(4)
     })
 
-    it("Combined metadata: front matter + directives", () => {
+    it("Combined metadata: front matter restricts directives", () => {
+      // Non-special directives become step text when frontmatter exists
       const r = noErrors("---\ntitle: Recipe\n---\n>> servings: 4\nDo something")
       expect(r.metadata.title).toBe("Recipe")
-      expect(r.metadata.servings).toBe(4)
+      expect(r.metadata.servings).toBeUndefined()
     })
 
     it("Nested YAML values: objects, arrays", () => {
@@ -256,26 +259,26 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
   describe("Structure", () => {
     it("Double-equals section: == Prep ==", () => {
       const r = noErrors("== Prep ==\nDo something")
-      expect(r.sections).toContain("Prep")
+      expect(getSectionNames(r)).toContain("Prep")
     })
 
     it("Single-equals section: = Cooking", () => {
       const r = noErrors("= Cooking\nDo something")
-      expect(r.sections).toContain("Cooking")
+      expect(getSectionNames(r)).toContain("Cooking")
     })
 
     it("Multi-line steps: adjacent lines joined with spaces", () => {
       const r = noErrors("Line one\nLine two")
-      expect(r.steps).toHaveLength(1)
+      expect(getSteps(r)).toHaveLength(1)
       // Lines joined into single step
-      const text = at(r.steps, 0).filter(i => i.type === "text").map(i => i.value).join(" ")
+      const text = at(getSteps(r), 0).filter(i => i.type === "text").map(i => i.value).join(" ")
       expect(text).toContain("Line one")
       expect(text).toContain("Line two")
     })
 
     it("Step separation: blank lines = new step", () => {
       const r = noErrors("Step one\n\nStep two")
-      expect(r.steps).toHaveLength(2)
+      expect(getSteps(r)).toHaveLength(2)
     })
   })
 
@@ -283,8 +286,8 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
   describe("Comments", () => {
     it("Inline comment: -- text (after step content)", () => {
       const r = noErrors("Mix well. -- stir gently")
-      expect(r.steps).toHaveLength(1)
-      const text = at(r.steps, 0).filter(i => i.type === "text").map(i => i.value).join("")
+      expect(getSteps(r)).toHaveLength(1)
+      const text = at(getSteps(r), 0).filter(i => i.type === "text").map(i => i.value).join("")
       expect(text).toContain("Mix well.")
       expect(text).not.toContain("stir gently")
     })
@@ -292,13 +295,13 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
     it("Full-line comment: -- text (on own line)", () => {
       const r = noErrors("-- This is a note to self\nDo something")
       // Comment should not appear in steps text
-      const allText = r.steps.flat().filter(i => i.type === "text").map(i => i.value).join(" ")
+      const allText = getSteps(r).flat().filter(i => i.type === "text").map(i => i.value).join(" ")
       expect(allText).not.toContain("note to self")
     })
 
     it("Block comment: [- text -]", () => {
       const r = noErrors("[- removed section -]\nDo something")
-      const allText = r.steps.flat().filter(i => i.type === "text").map(i => i.value).join(" ")
+      const allText = getSteps(r).flat().filter(i => i.type === "text").map(i => i.value).join(" ")
       expect(allText).not.toContain("removed section")
     })
   })
@@ -307,14 +310,14 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
   describe("Notes", () => {
     it("Note line: > text", () => {
       const r = noErrors("> Serve immediately.")
-      expect(r.notes).toContain("Serve immediately.")
+      expect(getNotes(r)).toContain("Serve immediately.")
     })
 
     it("Multiple notes: each parsed separately", () => {
       const r = noErrors("> Note one\n> Note two")
-      expect(r.notes).toHaveLength(2)
-      expect(r.notes).toContain("Note one")
-      expect(r.notes).toContain("Note two")
+      expect(getNotes(r)).toHaveLength(2)
+      expect(getNotes(r)).toContain("Note one")
+      expect(getNotes(r)).toContain("Note two")
     })
   })
 
@@ -323,20 +326,20 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
     it("@ in plain text: @ not followed by word char", () => {
       const r = noErrors("Use @ symbol here")
       expect(r.ingredients).toHaveLength(0)
-      const text = at(r.steps, 0).filter(i => i.type === "text").map(i => i.value).join("")
+      const text = at(getSteps(r), 0).filter(i => i.type === "text").map(i => i.value).join("")
       expect(text).toContain("@")
     })
 
     it("# in plain text: # not followed by word char", () => {
       const r = noErrors("Item # is special")
       expect(r.cookware).toHaveLength(0)
-      const text = at(r.steps, 0).filter(i => i.type === "text").map(i => i.value).join("")
+      const text = at(getSteps(r), 0).filter(i => i.type === "text").map(i => i.value).join("")
       expect(text).toContain("#")
     })
 
     it("-- without space: not a comment", () => {
       const r = noErrors("well--done steak")
-      const text = at(r.steps, 0).filter(i => i.type === "text").map(i => i.value).join(" ")
+      const text = at(getSteps(r), 0).filter(i => i.type === "text").map(i => i.value).join(" ")
       expect(text).toContain("well--done")
     })
 

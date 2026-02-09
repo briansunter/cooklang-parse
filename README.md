@@ -40,8 +40,33 @@ recipe.metadata    // { servings: 4 }
 recipe.ingredients // [{ type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false }, ...]
 recipe.cookware    // [{ type: "cookware", name: "oven", quantity: 1, units: "" }, ...]
 recipe.timers      // [{ type: "timer", name: "", quantity: 20, units: "minutes" }]
-recipe.steps       // [[{ type: "text", value: "Preheat " }, { type: "cookware", ... }, ...], ...]
 recipe.errors      // [] (parse errors and warnings)
+
+// Each step is an array of text and inline component tokens:
+recipe.steps[0]
+// [
+//   { type: "text", value: "Preheat " },
+//   { type: "cookware", name: "oven", quantity: 1, units: "" },
+//   { type: "text", value: " to 180C." }
+// ]
+
+recipe.steps[1]
+// [
+//   { type: "text", value: "Mix " },
+//   { type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false },
+//   { type: "text", value: " and " },
+//   { type: "ingredient", name: "eggs", quantity: 3, units: "", fixed: false },
+//   { type: "text", value: " in a " },
+//   { type: "cookware", name: "bowl", quantity: 1, units: "" },
+//   { type: "text", value: "." }
+// ]
+
+recipe.steps[2]
+// [
+//   { type: "text", value: "Bake for " },
+//   { type: "timer", name: "", quantity: 20, units: "minutes" },
+//   { type: "text", value: "." }
+// ]
 ```
 
 ## Cooklang Syntax
