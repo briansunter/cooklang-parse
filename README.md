@@ -3,6 +3,8 @@
 > A simple, type-safe [Cooklang](https://cooklang.org) parser built with [Ohm.js](https://ohmjs.org)
 
 [![npm version](https://badge.fury.io/js/cooklang-parse.svg)](https://www.npmjs.com/package/cooklang-parse)
+[![CI](https://github.com/briansunter/cooklang-parse/actions/workflows/ci.yml/badge.svg)](https://github.com/briansunter/cooklang-parse/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](https://github.com/briansunter/cooklang-parse)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
@@ -10,7 +12,7 @@
 - Full Cooklang spec support including ingredients, cookware, timers, metadata, sections, notes, and YAML frontmatter
 - Written in TypeScript with exported type definitions
 - Single function API — `parseCooklang(source)` returns a structured recipe
-- 190 tests with canonical parity against the [Rust reference implementation](https://github.com/cooklang/cooklang-rs)
+- 188 tests with canonical parity against the [Rust reference implementation](https://github.com/cooklang/cooklang-rs)
 - Source position tracking and parse error reporting
 
 ## Installation
@@ -174,7 +176,7 @@ recipe.ingredients.map(i => `${i.quantity} ${i.units} ${i.name}`.trim())
 
 ```bash
 bun install          # Install dependencies
-bun test             # Run all 190 tests
+bun test             # Run all 188 tests
 bun run build        # Bundle + emit declarations
 bun run typecheck    # Type-check without emitting
 bun run lint         # Lint with Biome
