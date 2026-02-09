@@ -2,8 +2,8 @@
 
 > A simple, type-safe [Cooklang](https://cooklang.org) parser built with [Ohm.js](https://ohmjs.org)
 
-[![npm version](https://badge.fury.io/js/cooklang-parse.svg)](https://www.npmjs.com/package/cooklang-parse)
-[![CI](https://github.com/briansunter/cooklang-parse/actions/workflows/ci.yml/badge.svg)](https://github.com/briansunter/cooklang-parse/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/cooklang-parse)](https://www.npmjs.com/package/cooklang-parse)
+[![CI](https://github.com/briansunter/cooklang-parse/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/briansunter/cooklang-parse/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](https://github.com/briansunter/cooklang-parse)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
