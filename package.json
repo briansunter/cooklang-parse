@@ -35,7 +35,7 @@
     "peg"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target=node --format=esm && tsc -p tsconfig.build.json",
+    "build": "bun build src/index.ts --outdir dist --target=browser --format=esm && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
