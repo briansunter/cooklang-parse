@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { parseCooklang } from "../src/index"
 import { getSteps, getNotes, getSectionNames } from "./canonical-helper"
 
@@ -169,4 +169,69 @@ tags: [unclosed
   expect(recipe.metadata).toEqual({})
   expect(recipe.ingredients.map(i => i.name)).toEqual(["flour"])
   expect(recipe.warnings.some(e => /yaml/i.test(e.message))).toBe(true)
+})
+
+// ---------------------------------------------------------------------------
+// cooklang-rs parity regression tests
+// ---------------------------------------------------------------------------
+
+describe("cooklang-rs parity", () => {
+  test("mixed fraction: 1 1/2", () => {
+    const recipe = parseCooklang("@flour{1 1/2%cups}\n")
+    expect(recipe.ingredients[0]!.quantity).toBe(1.5)
+    expect(recipe.ingredients[0]!.units).toBe("cups")
+  })
+
+  test("mixed fraction: 0 1/2", () => {
+    const recipe = parseCooklang("@flour{0 1/2%cup}\n")
+    expect(recipe.ingredients[0]!.quantity).toBe(0.5)
+  })
+
+  test("mixed fraction with spaces around slash: 1 1 / 2", () => {
+    const recipe = parseCooklang("@flour{1 1 / 2%cups}\n")
+    expect(recipe.ingredients[0]!.quantity).toBe(1.5)
+  })
+
+  test("simple fraction with spaces around slash: 1 / 2", () => {
+    const recipe = parseCooklang("@flour{1 / 2%cup}\n")
+    expect(recipe.ingredients[0]!.quantity).toBe(0.5)
+  })
+
+  test("leading-zero mixed fraction stays string", () => {
+    const recipe = parseCooklang("@flour{01 1/2%cup}\n")
+    expect(recipe.ingredients[0]!.quantity).toBe("01 1/2")
+  })
+
+  test("space-separated number is string, not collapsed", () => {
+    const recipe = parseCooklang("@flour{1 2}\n")
+    expect(recipe.ingredients[0]!.quantity).toBe("1 2")
+  })
+
+  test("directive values are strings", () => {
+    const recipe = parseCooklang(">> servings: 4\n")
+    expect(recipe.metadata.servings).toBe("4")
+  })
+
+  test("directive string stays string", () => {
+    const recipe = parseCooklang(">> author: Chef\n")
+    expect(recipe.metadata.author).toBe("Chef")
+  })
+
+  test("inline block comment produces minimal whitespace", () => {
+    const recipe = parseCooklang("Add @flour{} [- comment -] and mix\n")
+    const step = getSteps(recipe)[0]!
+    const texts = step.filter(i => i.type === "text").map(i => (i as { value: string }).value)
+    // After stripping [- comment -] (15 chars) → empty string, so grammar sees "Add  and mix"
+    // The text after the ingredient should be " " + " and mix" = "  and mix" (2 spaces)
+    expect(texts.some(t => t.includes("  and mix"))).toBe(true)
+    // Must NOT have the old 15-space gap
+    expect(texts.some(t => t.includes("               "))).toBe(false)
+  })
+
+  test("multiline block comment preserves line breaks", () => {
+    const source = "step one\n\n[- multi\nline\ncomment -]\n\nstep two\n"
+    const recipe = parseCooklang(source)
+    const steps = getSteps(recipe)
+    expect(steps.length).toBeGreaterThanOrEqual(2)
+  })
 })

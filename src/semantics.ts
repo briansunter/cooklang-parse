@@ -36,88 +36,58 @@ function parseQuantity(raw: string): string | number {
   if (!qty) return ""
   if (/[a-zA-Z]/.test(qty)) return qty
 
-  const compact = qty.replace(/\s+/g, "")
-  const frac = compact.match(/^(\d+)\/(\d+)$/)
+  // Mixed fraction: "1 1/2", "2 3/4"
+  const mixed = qty.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/)
+  if (mixed) {
+    const whole = mixed[1] ?? ""
+    const mNum = mixed[2] ?? ""
+    const mDen = mixed[3] ?? ""
+    if (whole.startsWith("0") && whole.length > 1) return qty
+    if (mNum.startsWith("0") && mNum.length > 1) return qty
+    if (+mDen !== 0) return +whole + +mNum / +mDen
+  }
+
+  // Simple fraction: "1/2", "3/4"
+  const frac = qty.match(/^(\d+)\s*\/\s*(\d+)$/)
   if (frac?.[1] && frac[2]) {
-    // Preserve leading-zero fractions like "01/2" as strings
     if (frac[1].startsWith("0") && frac[1].length > 1) return qty
     if (+frac[2] !== 0) return +frac[1] / +frac[2]
   }
-  const num = parseFloat(compact)
+
+  const num = Number(qty)
   return Number.isNaN(num) ? qty : num
 }
 
-/**
- * Split an amount string into quantity and units.
- * Only `%` is the qty/unit separator (matching cooklang-rs canonical behavior).
- * A leading `=` (fixed indicator) is stripped.
- */
-function parseAmount(raw: string): { quantity: string | number; units: string } {
-  const amount = raw.trim().replace(/^=\s*/, "")
-
-  // "%" is the only qty/unit separator (cooklang-rs canonical mode)
-  const pctIdx = amount.lastIndexOf("%")
-  if (pctIdx !== -1) {
-    return {
-      quantity: parseQuantity(amount.slice(0, pctIdx).trim()),
-      units: amount.slice(pctIdx + 1).trim(),
-    }
-  }
-
-  return { quantity: parseQuantity(amount), units: "" }
-}
-
 // ---------------------------------------------------------------------------
-// Component parsing (ingredients, cookware, timers)
+// Component builders
 // ---------------------------------------------------------------------------
 
-/** Extract name, optional alias, and optional brace-delimited amount from a component token. */
-function parseComponent(raw: string): { name: string; alias?: string; amountContent?: string } {
-  const trimmed = raw.trim()
-  const braceStart = trimmed.endsWith("}") ? trimmed.lastIndexOf("{") : -1
-  const rawName = braceStart === -1 ? trimmed : trimmed.slice(0, braceStart).trim()
+/** Extract name and optional alias from a raw name string containing optional pipe syntax. */
+function splitNameAlias(rawName: string): { name: string; alias?: string } {
   const pipeIdx = rawName.indexOf("|")
   const name = pipeIdx === -1 ? rawName : rawName.slice(0, pipeIdx).trim()
   const alias = pipeIdx === -1 ? undefined : rawName.slice(pipeIdx + 1).trim() || undefined
-  if (braceStart === -1) return { name, alias }
-  return { name, alias, amountContent: trimmed.slice(braceStart + 1, -1) }
+  return { name, alias }
 }
 
-function convertIngredient(token: string): RecipeIngredient {
-  const trimmed = token.trim()
-  const stripped = trimmed.replace(/^[@&?+-]+/, "")
-
-  // Extract trailing (note)
-  const noteMatch = stripped.match(/\(([^)]*)\)$/)
-  const note = noteMatch?.[1] || undefined
-  const body = noteMatch ? stripped.slice(0, noteMatch.index).trimEnd() : stripped
-
-  const { name, alias, amountContent } = parseComponent(body)
-  const fixed = amountContent?.trimStart().startsWith("=") === true
-  const content = amountContent?.trim()
-  const amt = content ? parseAmount(content) : { quantity: "some", units: "" }
-  return { type: "ingredient", name, alias, ...amt, fixed, note }
+/** Build an ingredient from structured grammar data. */
+function buildIngredient(
+  rawName: string,
+  amount: { quantity: string | number; units: string; fixed: boolean },
+  note: string | undefined,
+): RecipeIngredient {
+  const { name, alias } = splitNameAlias(rawName)
+  return { type: "ingredient", name, alias, ...amount, note }
 }
 
-function convertCookware(token: string): RecipeCookware {
-  const stripped = token.trim().replace(/^[#&?+-]+/, "")
-  // Extract trailing (note)
-  const noteMatch = stripped.match(/\(([^)]*)\)$/)
-  const note = noteMatch?.[1] || undefined
-  const bodyStr = noteMatch ? stripped.slice(0, noteMatch.index).trimEnd() : stripped
-
-  const { name, alias, amountContent } = parseComponent(bodyStr)
-  const rawQty = amountContent?.trim()
-  const num = rawQty ? parseFloat(rawQty) : NaN
-  const quantity: number | string = rawQty ? (Number.isNaN(num) ? rawQty : num) : 1
+/** Build a cookware item from structured grammar data. */
+function buildCookware(
+  rawName: string,
+  quantity: string | number,
+  note: string | undefined,
+): RecipeCookware {
+  const { name, alias } = splitNameAlias(rawName)
   return { type: "cookware", name, alias, quantity, units: "", note }
-}
-
-function convertTimer(token: string): RecipeTimer {
-  const { name, amountContent } = parseComponent(token.trim().replace(/^~/, ""))
-  if (!amountContent) return { type: "timer", name, quantity: "", units: "" }
-  const { quantity, units } = parseAmount(amountContent)
-  return { type: "timer", name, quantity, units }
 }
 
 // ---------------------------------------------------------------------------
@@ -193,11 +163,10 @@ function parseYamlFrontmatter(content: string, yamlStartOffset: number): YamlPar
 // Block comment stripping
 // ---------------------------------------------------------------------------
 
-/** Strip block comments [- ... -] from source, replacing with spaces to preserve offsets. */
+/** Strip block comments [- ... -] from source, preserving only newlines. */
 function stripBlockComments(source: string): string {
   return source.replace(/\[-[\s\S]*?-\]/g, match => {
-    // Replace each character with a space, but preserve newlines
-    return match.replace(/[^\n]/g, " ")
+    return match.replace(/[^\n]/g, "")
   })
 }
 
@@ -299,8 +268,12 @@ semantics.addOperation("toAST", {
     return yaml.sourceString
   },
 
-  Section(_child) {
-    return { type: "section", name: this.sourceString.replace(/^=+\s*|\s*=+$/g, "").trim() }
+  Section_double(_eq1, name, _eq2) {
+    return { type: "section", name: name.sourceString.trim() }
+  },
+
+  Section_single(_eq, name) {
+    return { type: "section", name: name.sourceString.trim() }
   },
 
   Step(lines) {
@@ -315,16 +288,91 @@ semantics.addOperation("toAST", {
     return { type: "text", value: self.sourceString }
   },
 
-  Ingredient(_child) {
-    return convertIngredient(this.sourceString)
+  Ingredient_multi(_at, _mods, firstWord, _spacesIter, moreWordsIter, amount, noteOpt) {
+    const rawName = [firstWord, ...moreWordsIter.children].map(w => w.sourceString).join(" ")
+    const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
+    return buildIngredient(rawName, amount.toAST(), note)
   },
 
-  Cookware(_child) {
-    return convertCookware(this.sourceString)
+  Ingredient_single(_at, _mods, word, amountOpt, noteOpt) {
+    const amt =
+      amountOpt.numChildren > 0
+        ? amountOpt.child(0).toAST()
+        : { quantity: "some", units: "", fixed: false }
+    const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
+    return buildIngredient(word.sourceString, amt, note)
   },
 
-  Timer(_child) {
-    return convertTimer(this.sourceString)
+  ingredientAmount_withUnit(_open, fixedOpt, qty, _pct, unit, _close) {
+    return {
+      quantity: parseQuantity(qty.sourceString.trim()),
+      units: unit.sourceString.trim(),
+      fixed: fixedOpt.numChildren > 0,
+    }
+  },
+
+  ingredientAmount_quantityOnly(_open, fixedOpt, qty, _close) {
+    return {
+      quantity: parseQuantity(qty.sourceString.trim()),
+      units: "",
+      fixed: fixedOpt.numChildren > 0,
+    }
+  },
+
+  ingredientAmount_empty(_open, _hspace1, fixedOpt, _hspace2, _close) {
+    return { quantity: "some", units: "", fixed: fixedOpt.numChildren > 0 }
+  },
+
+  ingredientNote(_open, content, _close) {
+    return content.sourceString
+  },
+
+  Cookware_multi(_hash, _mods, firstWord, _spacesIter, moreWordsIter, amount, noteOpt) {
+    const rawName = [firstWord, ...moreWordsIter.children].map(w => w.sourceString).join(" ")
+    const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
+    return buildCookware(rawName, amount.toAST().quantity, note)
+  },
+
+  Cookware_single(_hash, _mods, word, amountOpt, noteOpt) {
+    const qty = amountOpt.numChildren > 0 ? amountOpt.child(0).toAST().quantity : 1
+    const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
+    return buildCookware(word.sourceString, qty, note)
+  },
+
+  cookwareAmount_empty(_open, _hspace, _close) {
+    return { quantity: 1 }
+  },
+
+  cookwareAmount_withQuantity(_open, qty, _close) {
+    const raw = qty.sourceString.trim()
+    const n = Number.parseFloat(raw)
+    return { quantity: Number.isNaN(n) ? raw : n }
+  },
+
+  cookwareNote(_open, content, _close) {
+    return content.sourceString
+  },
+
+  Timer_withUnit(_tilde, nameOpt, _open, qty, _pct, unit, _close) {
+    return {
+      type: "timer",
+      name: nameOpt.numChildren > 0 ? nameOpt.child(0).sourceString : "",
+      quantity: parseQuantity(qty.sourceString.trim()),
+      units: unit.sourceString.trim(),
+    }
+  },
+
+  Timer_quantityOnly(_tilde, nameOpt, _open, qty, _close) {
+    return {
+      type: "timer",
+      name: nameOpt.numChildren > 0 ? nameOpt.child(0).sourceString : "",
+      quantity: parseQuantity(qty.sourceString.trim()),
+      units: "",
+    }
+  },
+
+  Timer_word(_tilde, name) {
+    return { type: "timer", name: name.sourceString, quantity: "", units: "" }
   },
 
   Note(_gt, noteContents, _newline) {
@@ -400,12 +448,7 @@ export function parseCooklang(source: string): CooklangRecipe {
   const directiveMetadata: Record<string, unknown> = {}
   if (!result.frontmatter) {
     for (const dir of result.directives) {
-      try {
-        const parsed = dir.rawValue ? YAML.parse(dir.rawValue) : undefined
-        directiveMetadata[dir.key] = parsed === undefined ? dir.rawValue || null : parsed
-      } catch {
-        directiveMetadata[dir.key] = dir.rawValue
-      }
+      directiveMetadata[dir.key] = dir.rawValue || ""
     }
   }
   const metadata = { ...(yaml?.data ?? {}), ...directiveMetadata }

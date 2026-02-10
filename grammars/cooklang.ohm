@@ -66,7 +66,9 @@ Cooklang {
     = componentWordChar+
 
   ingredientAmount
-    = "{" (~"}" any)* "}"
+    = "{" amountFixed? amountQuantity "%" amountUnit "}"  -- withUnit
+    | "{" hspace* amountFixed? hspace* "}"                 -- empty
+    | "{" amountFixed? amountQuantity "}"                   -- quantityOnly
 
   // Cookware: #name or #multi word{}
   Cookware
@@ -83,21 +85,30 @@ Cooklang {
     = componentWordChar+
 
   cookwareAmount
-    = "{" (~"}" any)* "}"
+    = "{" hspace* "}"           -- empty
+    | "{" cookwareQuantity "}"  -- withQuantity
+
+  cookwareQuantity
+    = (~"}" any)+
 
   // Timer: ~{quantity%unit} or ~name{quantity%unit}
   Timer
-    = "~" timerName? "{" timerQuantity timerUnit? "}"   -- withAmount
-    | "~" timerName                                     -- word
+    = "~" timerName? "{" amountQuantity "%" amountUnit "}"  -- withUnit
+    | "~" timerName? "{" amountQuantity "}"                  -- quantityOnly
+    | "~" timerName                                           -- word
 
   timerName
     = word+
 
-  timerQuantity
+  // Shared amount sub-rules for ingredients and timers
+  amountFixed
+    = hspace* "=" hspace*
+
+  amountQuantity
     = (~"%" ~"}" any)+
 
-  timerUnit
-    = "%" (~"}" any)+
+  amountUnit
+    = (~"}" any)+
 
   // Note lines (start with >)
   Note

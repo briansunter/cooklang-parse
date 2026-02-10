@@ -596,7 +596,7 @@ Mix @flour{250%g}.
   const recipe = parseCooklang(source);
 
   expect(recipe.metadata.title).toBe('Pancakes');
-  expect(recipe.metadata.servings).toBe(4);
+  expect(recipe.metadata.servings).toBe("4");
   const textItems = getSteps(recipe)[0]!.filter(i => i.type === 'text');
   expect(textItems.some(t => t.type === 'text' && t.value.includes('Mix'))).toBe(true);
 });
@@ -610,7 +610,7 @@ Step two.
 
   const recipe = parseCooklang(source);
 
-  expect(recipe.metadata.servings).toBe(2);
+  expect(recipe.metadata.servings).toBe("2");
   expect(getSteps(recipe)).toHaveLength(2);
   const step1Text = getSteps(recipe)[0]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');
   const step2Text = getSteps(recipe)[1]!.filter(i => i.type === 'text').map(i => i.type === 'text' ? i.value : '').join('');

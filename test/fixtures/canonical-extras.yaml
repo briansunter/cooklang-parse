@@ -12,7 +12,7 @@ tests:
             quantity: 250
             units: g
           - type: text
-            value: "                     and mix."
+            value: "  and mix."
       metadata: {}
 
   testBlockCommentFullLine:

@@ -228,7 +228,7 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
 
     it("Metadata directives: >> key: value", () => {
       const r = noErrors(">> servings: 4\nDo something")
-      expect(r.metadata.servings).toBe(4)
+      expect(r.metadata.servings).toBe("4")
     })
 
     it("Combined metadata: front matter restricts directives", () => {
