@@ -235,3 +235,56 @@ describe("cooklang-rs parity", () => {
     expect(steps.length).toBeGreaterThanOrEqual(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Directive deprecation & type validation warnings
+// ---------------------------------------------------------------------------
+
+describe("directive warnings", () => {
+  test(">> servings: 6 produces servings type warning", () => {
+    const recipe = parseCooklang(">> servings: 6\n")
+    const servingsWarning = recipe.warnings.find(w =>
+      w.message.includes("expected a number, got a string"),
+    )
+    expect(servingsWarning).toBeDefined()
+    expect(servingsWarning!.help).toBe("It will be stored as a regular metadata entry")
+  })
+
+  test(">> servings: 6 produces deprecated syntax warning with YAML suggestion", () => {
+    const recipe = parseCooklang(">> servings: 6\n")
+    const deprecatedWarning = recipe.warnings.find(w =>
+      w.message.includes("deprecated"),
+    )
+    expect(deprecatedWarning).toBeDefined()
+    expect(deprecatedWarning!.help).toContain("---")
+    expect(deprecatedWarning!.help).toContain("servings: '6'")
+  })
+
+  test(">> title: Test (no servings) produces only deprecation warning", () => {
+    const recipe = parseCooklang(">> title: Test\n")
+    expect(recipe.warnings).toHaveLength(1)
+    expect(recipe.warnings[0]!.message).toContain("deprecated")
+    // No servings type warning
+    expect(recipe.warnings.some(w => w.message.includes("expected a number"))).toBe(false)
+  })
+
+  test("YAML frontmatter produces no directive warnings", () => {
+    const source = "---\nservings: 6\n---\n\nMix @flour{}\n"
+    const recipe = parseCooklang(source)
+    const directiveWarnings = recipe.warnings.filter(
+      w => w.message.includes("deprecated") || w.message.includes("expected a number"),
+    )
+    expect(directiveWarnings).toHaveLength(0)
+  })
+
+  test("warning help field contains YAML frontmatter replacement text", () => {
+    const recipe = parseCooklang(">> servings: 6\n>> title: My Recipe\n")
+    const deprecatedWarning = recipe.warnings.find(w =>
+      w.message.includes("deprecated"),
+    )
+    expect(deprecatedWarning).toBeDefined()
+    expect(deprecatedWarning!.help).toContain("---")
+    expect(deprecatedWarning!.help).toContain("servings: '6'")
+    expect(deprecatedWarning!.help).toContain("title: My Recipe")
+  })
+})

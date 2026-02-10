@@ -9,6 +9,7 @@ export interface ParseError {
   shortMessage?: string
   position: SourcePosition
   severity: "error" | "warning"
+  help?: string
 }
 
 export type SectionContent =

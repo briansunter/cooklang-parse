@@ -220,6 +220,7 @@ interface DirectiveNode {
   type: "directive"
   key: string
   rawValue: string
+  position: SourcePosition
 }
 
 type SemanticItem =
@@ -384,7 +385,13 @@ semantics.addOperation("toAST", {
   },
 
   directiveBody(_hspace1, key, _hspace2, _colon, value) {
-    return { type: "directive", key: key.sourceString.trim(), rawValue: value.sourceString.trim() }
+    const pos = this.source.getLineAndColumn()
+    return {
+      type: "directive",
+      key: key.sourceString.trim(),
+      rawValue: value.sourceString.trim(),
+      position: { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
+    }
   },
 
   _nonterminal(...children) {
@@ -396,6 +403,165 @@ semantics.addOperation("toAST", {
     return null
   },
 })
+
+// ---------------------------------------------------------------------------
+// Standard metadata key validation (matching cooklang-rs check_std_entry)
+// ---------------------------------------------------------------------------
+
+/** Standard key aliases → canonical name (from cooklang-rs StdKey::from_str) */
+const STD_KEY_ALIASES: Record<string, string> = {
+  introduction: "description",
+  tag: "tags",
+  serves: "servings",
+  yield: "servings",
+  category: "course",
+  "time required": "time",
+  duration: "time",
+  "prep time": "prep_time",
+  "cook time": "cook_time",
+  image: "images",
+  picture: "images",
+  pictures: "images",
+}
+
+/** Resolve a metadata key to its canonical standard key name, or null if not standard. */
+function resolveStdKey(key: string): string | null {
+  const lower = key.toLowerCase()
+  const alias = STD_KEY_ALIASES[lower]
+  if (alias) return alias
+  const stdKeys = [
+    "title",
+    "description",
+    "tags",
+    "author",
+    "source",
+    "servings",
+    "course",
+    "time",
+    "prep_time",
+    "cook_time",
+    "difficulty",
+    "cuisine",
+    "diet",
+    "images",
+    "locale",
+  ]
+  return stdKeys.includes(lower) ? lower : null
+}
+
+/**
+ * Check a standard metadata key/value pair, matching cooklang-rs `check_std_entry`.
+ * Returns an error message string if validation fails, null if it passes.
+ *
+ * Acceptance rules (from cooklang-rs metadata.rs):
+ *   servings           → number only (as_u32)
+ *   title, description → string only (as_str)
+ *   time               → string | number | mapping {prep,cook} (value_as_time)
+ *   prep_time,cook_time→ string | number (value_as_minutes accepts time strings)
+ *   tags               → string (comma-sep) | sequence (value_as_tags)
+ *   locale             → string with ISO 639 pattern (value_as_locale)
+ *   author, source     → string | mapping {name,url} (as_name_and_url)
+ *   course, difficulty, cuisine, diet, images → no validation
+ */
+function checkStdEntry(stdKey: string, value: unknown): { expected: string; got: string } | null {
+  const t = typeof value
+
+  switch (stdKey) {
+    case "servings":
+      // cooklang-rs: value.as_u32() — only numbers
+      if (t !== "number") return { expected: "number", got: metaTypeName(value) }
+      break
+
+    case "title":
+    case "description":
+      // cooklang-rs: value.as_str() — only strings
+      if (t !== "string") return { expected: "string", got: metaTypeName(value) }
+      break
+
+    case "time":
+      // cooklang-rs: value_as_time → string | number | mapping {prep,cook}
+      if (t !== "string" && t !== "number" && !isRecord(value))
+        return { expected: "string", got: metaTypeName(value) }
+      break
+
+    case "prep_time":
+    case "cook_time":
+      // cooklang-rs: value_as_minutes → string | number
+      if (t !== "string" && t !== "number") return { expected: "string", got: metaTypeName(value) }
+      break
+
+    case "tags":
+      // cooklang-rs: value_as_tags → string | sequence
+      if (t !== "string" && !Array.isArray(value))
+        return { expected: "sequence", got: metaTypeName(value) }
+      break
+
+    case "locale":
+      // cooklang-rs: value_as_locale → string with pattern check
+      if (t !== "string") return { expected: "string", got: metaTypeName(value) }
+      break
+
+    case "author":
+    case "source":
+      // cooklang-rs: as_name_and_url → string | mapping
+      if (t !== "string" && !isRecord(value))
+        return { expected: "mapping", got: metaTypeName(value) }
+      break
+
+    // course, difficulty, cuisine, diet, images — no validation
+    default:
+      break
+  }
+
+  return null
+}
+
+/** Map a JS value to cooklang-rs MetaType name (snake_case). */
+function metaTypeName(value: unknown): string {
+  if (value === null || value === undefined) return "null"
+  if (typeof value === "boolean") return "bool"
+  if (typeof value === "number") return "number"
+  if (typeof value === "string") return "string"
+  if (Array.isArray(value)) return "sequence"
+  if (typeof value === "object") return "mapping"
+  return "unknown"
+}
+
+/**
+ * Validate standard metadata entries and push type-mismatch warnings.
+ * Matches cooklang-rs behavior: `check_std_entry` is called for each key,
+ * producing warnings like "Unsupported value for key: 'servings'" with
+ * hint "It will be a regular metadata entry".
+ */
+function checkStandardMetadata(
+  metadata: Record<string, unknown>,
+  warnings: ParseError[],
+  directives: DirectiveNode[],
+): void {
+  // Build a position lookup from directives
+  const directivePositions = new Map<string, SourcePosition>()
+  for (const dir of directives) {
+    if (!directivePositions.has(dir.key)) {
+      directivePositions.set(dir.key, dir.position)
+    }
+  }
+
+  for (const [key, value] of Object.entries(metadata)) {
+    const stdKey = resolveStdKey(key)
+    if (!stdKey) continue
+
+    const err = checkStdEntry(stdKey, value)
+    if (err) {
+      const position = directivePositions.get(key) ?? { line: 1, column: 1, offset: 0 }
+      warnings.push({
+        message: `Unsupported value for key '${key}': expected ${err.expected === "number" ? "a number" : err.expected}, got ${err.got === "number" ? "a number" : `a ${err.got}`}`,
+        position,
+        severity: "warning",
+        help: "It will be stored as a regular metadata entry",
+      })
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Main entry point
@@ -452,6 +618,33 @@ export function parseCooklang(source: string): CooklangRecipe {
     }
   }
   const metadata = { ...(yaml?.data ?? {}), ...directiveMetadata }
+
+  // Validate standard metadata keys (matching cooklang-rs check_std_entry)
+  checkStandardMetadata(metadata, warnings, result.directives)
+
+  // Generate deprecated >> syntax warning
+  const firstDirective = result.directives[0]
+  if (firstDirective) {
+    const yamlLines = result.directives.map(dir => {
+      const val = dir.rawValue
+      // Quote values that YAML would parse as non-string (numbers, booleans, null, etc.)
+      const needsQuote =
+        val === "" ||
+        val === "true" ||
+        val === "false" ||
+        val === "null" ||
+        val === "~" ||
+        /^-?\d+(\.\d+)?$/.test(val)
+      return `${dir.key}: ${needsQuote ? `'${val}'` : val}`
+    })
+    const suggestion = `---\n${yamlLines.join("\n")}\n---`
+    warnings.push({
+      message: "The '>>' syntax for metadata is deprecated. Use YAML frontmatter instead.",
+      position: firstDirective.position,
+      severity: "warning",
+      help: suggestion,
+    })
+  }
 
   // Build sections from ordered semantic items
   const allSections: RecipeSection[] = []
