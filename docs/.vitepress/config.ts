@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   title: 'cooklang-parse',
@@ -18,6 +19,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Cooklang Syntax', link: '/guide/cooklang-syntax' },
       { text: 'API Reference', link: '/reference/' },
+      { text: 'Playground', link: '/playground' },
       {
         text: 'Links',
         items: [
@@ -34,6 +36,7 @@ export default defineConfig({
         items: [
           { text: 'What is cooklang-parse?', link: '/guide/what-is-cooklang-parse' },
           { text: 'Getting Started', link: '/guide/getting-started' },
+          { text: 'Playground', link: '/playground' },
         ],
       },
       {
@@ -84,5 +87,20 @@ export default defineConfig({
 
   markdown: {
     lineNumbers: true,
+  },
+
+  vite: {
+    plugins: [react()],
+    css: {
+      postcss: {
+        plugins: [
+          (await import('tailwindcss')).default,
+          (await import('autoprefixer')).default,
+        ],
+      },
+    },
+    ssr: {
+      noExternal: ['lucide-react', 'cooklang-parse'],
+    },
   },
 })
