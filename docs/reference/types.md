@@ -5,6 +5,8 @@ All types are exported from `cooklang-parse` and available for import:
 ```ts
 import type {
   CooklangRecipe,
+  RecipeSection,
+  SectionContent,
   RecipeStepItem,
   RecipeIngredient,
   RecipeCookware,
@@ -20,15 +22,35 @@ The top-level result returned by `parseCooklang()`.
 
 ```ts
 interface CooklangRecipe {
-  metadata: Record<string, unknown>  // YAML front matter + >> directives
-  steps: RecipeStepItem[][]          // Ordered text + tokens per step
+  metadata: Record<string, unknown>  // YAML front matter or >> directives
+  sections: RecipeSection[]          // Sections with interleaved steps and notes
   ingredients: RecipeIngredient[]    // Deduplicated across all steps
   cookware: RecipeCookware[]         // Deduplicated across all steps
   timers: RecipeTimer[]              // Deduplicated across all steps
-  sections: string[]                 // Section names from == headers
-  notes: string[]                    // Lines starting with >
-  errors: ParseError[]               // Parse errors and warnings
+  errors: ParseError[]               // Parse errors
+  warnings: ParseError[]             // Parse warnings (e.g. invalid YAML)
 }
+```
+
+## RecipeSection
+
+A named or unnamed section of the recipe containing interleaved steps and text blocks.
+
+```ts
+interface RecipeSection {
+  name: string | null       // null for the default unnamed section
+  content: SectionContent[]
+}
+```
+
+## SectionContent
+
+A discriminated union for items inside a section.
+
+```ts
+type SectionContent =
+  | { type: "step"; items: RecipeStepItem[] }
+  | { type: "text"; value: string }           // Notes (> lines)
 ```
 
 ## RecipeStepItem
@@ -49,10 +71,11 @@ type RecipeStepItem =
 interface RecipeIngredient {
   type: "ingredient"
   name: string                 // e.g. "flour", "olive oil"
+  alias?: string               // from @name|alias{} syntax
   quantity: number | string    // Numeric when possible, "some" if omitted
-  units: string                // e.g. "g", "tbsp", "" if none
-  fixed: boolean               // true if quantity doesn't scale (=@ or {=qty})
-  preparation?: string         // e.g. "sifted", "chopped"
+  units: string                // e.g. "g", "tbsp", "" if none (only % separator)
+  fixed: boolean               // true if quantity doesn't scale ({=qty})
+  note?: string                // e.g. "sifted", "chopped" from (note) suffix
 }
 ```
 
@@ -62,8 +85,10 @@ interface RecipeIngredient {
 interface RecipeCookware {
   type: "cookware"
   name: string                 // e.g. "pan", "mixing bowl"
+  alias?: string               // from #name|alias{} syntax
   quantity: number | string    // Defaults to 1
   units: string                // Always ""
+  note?: string                // from #name(note) suffix
 }
 ```
 
@@ -83,6 +108,7 @@ interface RecipeTimer {
 ```ts
 interface ParseError {
   message: string
+  shortMessage?: string
   position: SourcePosition
   severity: "error" | "warning"
 }

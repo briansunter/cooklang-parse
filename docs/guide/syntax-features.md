@@ -13,10 +13,9 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 | Multi-word ingredient | `@multi word name{}` | :white_check_mark: | `@olive oil{2%tbsp}` |
 | Multi-word (no braces) | `@multi word{qty%unit}` | :white_check_mark: | `@sea salt{1%tsp}` |
 | Empty braces | `@name{}` | :white_check_mark: | `@salt{}` |
-| Fixed quantity (prefix) | `=@name{qty%unit}` | :white_check_mark: | `=@salt{1%pinch}` |
 | Fixed quantity (in braces) | `@name{=qty%unit}` | :white_check_mark: | `@salt{=1%tsp}` |
-| Preparation suffix | `@name{qty%unit}(prep)` | :white_check_mark: | `@flour{100%g}(sifted)` |
-| Preparation (no amount) | `@name(prep)` | :white_check_mark: | `@butter(softened)` |
+| Note suffix | `@name{qty%unit}(note)` | :white_check_mark: | `@flour{100%g}(sifted)` |
+| Note (no amount) | `@name(note)` | :white_check_mark: | `@butter(softened)` |
 | Alias syntax | `@display\|canonical{}` | :white_check_mark: | `@white wine\|wine{100%ml}` |
 | Modifier `@` (reference) | `@@name` | :white_check_mark: | `@@tomato sauce{200%ml}` |
 | Modifier `&` (hidden) | `@&name` | :white_check_mark: | `@&flour{300%g}` |
@@ -25,12 +24,13 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 | Modifier `-` (removed) | `@-name` | :white_check_mark: | `@-onion` |
 | Fraction quantity | `@name{1/2%cup}` | :white_check_mark: | `@sugar{1/2%cup}` |
 | Decimal quantity | `@name{0.5%cup}` | :white_check_mark: | `@water{0.5%cup}` |
-| Space-separated amount | `@name{qty unit}` | :white_check_mark: | `@flour{2 cups}` |
 | Unicode names | `@crème fraîche{}` | :white_check_mark: | `@crème fraîche{2%tbsp}` |
 | **Cookware** | | | |
 | Single-word cookware | `#name` | :white_check_mark: | `#pan` |
 | Multi-word cookware | `#multi word name{}` | :white_check_mark: | `#mixing bowl{}` |
 | Cookware with quantity | `#name{qty}` | :white_check_mark: | `#pan{2}` |
+| Cookware note suffix | `#name(note)` | :white_check_mark: | `#pan(large)` |
+| Cookware alias | `#name\|alias{}` | :white_check_mark: | `#frying pan\|pan{}` |
 | Cookware modifiers | `#&name`, `#?name` | :white_check_mark: | `#?blender` |
 | **Timers** | | | |
 | Anonymous timer | `~{qty%unit}` | :white_check_mark: | `~{20%minutes}` |
@@ -40,10 +40,8 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 | **Metadata** | | | |
 | YAML front matter | `---` fences | :white_check_mark: | See [syntax guide](/guide/cooklang-syntax#yaml-front-matter) |
 | Metadata directives | `>> key: value` | :white_check_mark: | `>> servings: 4` |
-| Combined metadata | Both in same recipe | :white_check_mark: | Front matter + directives |
 | Nested YAML values | Objects, arrays | :white_check_mark: | `tags: [a, b]` |
-| `[mode]` directive | `>> [mode]: components` | :white_check_mark: | Component-only sections |
-| `[define]` directive | `>> [define]: ingredients` | :white_check_mark: | Define ingredient lists |
+| Frontmatter suppresses directives | Directives ignored with `---` | :white_check_mark: | Matching cooklang-rs |
 | **Structure** | | | |
 | Double-equals section | `== Name ==` | :white_check_mark: | `== Prep ==` |
 | Single-equals section | `= Name` | :white_check_mark: | `= Cooking` |
@@ -64,4 +62,4 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 
 ## Spec Compliance
 
-cooklang-parse is verified against **57 canonical test cases** from the official [cooklang-rs](https://github.com/cooklang/cooklang-rs) reference implementation, achieving exact byte-level parity on all cases.
+cooklang-parse is verified against **57 canonical test cases** from the official [Cooklang spec](https://github.com/cooklang/spec), plus 17 extended test cases for non-canonical features, achieving exact parity with the [cooklang-rs](https://github.com/cooklang/cooklang-rs) reference implementation.

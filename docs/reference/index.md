@@ -14,6 +14,8 @@ All types are re-exported and available for import:
 ```ts
 import type {
   CooklangRecipe,
+  RecipeSection,
+  SectionContent,
   RecipeStepItem,
   RecipeIngredient,
   RecipeCookware,
@@ -34,5 +36,7 @@ const recipe = parseCooklang(`Add @flour{250%g} to #bowl.`)
 
 recipe.ingredients  // [{ type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false }]
 recipe.cookware     // [{ type: "cookware", name: "bowl", quantity: 1, units: "" }]
-recipe.steps[0]     // [{ type: "text", value: "Add " }, { type: "ingredient", ... }, ...]
+
+const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
+step.items          // [{ type: "text", value: "Add " }, { type: "ingredient", ... }, ...]
 ```

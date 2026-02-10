@@ -4,7 +4,7 @@ Cooklang is a markup language for writing recipes as plain text. A few special c
 
 ## Ingredients `@`
 
-Use `@` to mark an ingredient. Add `{quantity%unit}` for amounts.
+Use `@` to mark an ingredient. Add `{quantity%unit}` for amounts. Only `%` separates quantity from unit.
 
 ```txt
 Add @salt and @pepper.                    // no amount
@@ -18,23 +18,22 @@ Add @sea salt{} to taste.                 // multi-word with empty braces
 
 | Input | Name | Quantity | Unit |
 |-------|------|----------|------|
-| `@salt` | salt | - | - |
-| `@eggs{3}` | eggs | 3 | - |
+| `@salt` | salt | "some" | "" |
+| `@eggs{3}` | eggs | 3 | "" |
 | `@flour{250%g}` | flour | 250 | g |
 | `@olive oil{2%tbsp}` | olive oil | 2 | tbsp |
 
 ### Fixed Quantities
 
-Prefix with `=` to mark a quantity that should not scale with servings:
+Use `=` inside the braces to mark a quantity that should not scale with servings:
 
 ```txt
-Add =@salt{1%pinch} to taste.
 Add @salt{=1%tsp} to taste.
 ```
 
-### Preparation Suffix
+### Note Suffix
 
-Add preparation instructions in parentheses after the ingredient:
+Add notes in parentheses after the ingredient:
 
 ```txt
 Add @flour{100%g}(sifted) to the bowl.
@@ -57,6 +56,12 @@ Use `#` to mark cookware. Multi-word names need `{}` at the end.
 Mix in a #bowl.
 Heat in a #non-stick pan{}.
 Use a #large mixing bowl{}.
+```
+
+Cookware can also have notes in parentheses:
+
+```txt
+Heat in #pan(large).
 ```
 
 ## Timers `~`
@@ -95,7 +100,7 @@ Mix @flour{300%g} with @cocoa powder{50%g}.
 
 ### Directives
 
-Use `>> key: value` anywhere in the recipe:
+Use `>> key: value` anywhere in the recipe (when no frontmatter is present):
 
 ```txt
 >> title: Chocolate Cake
@@ -104,7 +109,9 @@ Use `>> key: value` anywhere in the recipe:
 Mix @flour{300%g} with @cocoa powder{50%g}.
 ```
 
-Both styles can be combined in the same recipe.
+::: warning
+When YAML frontmatter (`---`) is present, `>> key: value` directives are parsed but not added to metadata. Use one style or the other.
+:::
 
 ## Sections
 

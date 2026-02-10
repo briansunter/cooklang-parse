@@ -32,6 +32,7 @@ import type { CooklangRecipe } from "cooklang-parse"
 
 const recipe: CooklangRecipe = parseCooklang(`
 Mix @flour{250%g} and @eggs{3}.
+
 Cook in #pan for ~{20%minutes}.
 `)
 ```
@@ -49,23 +50,30 @@ recipe.cookware    // [{ type: "cookware", name: "pan", quantity: 1, units: "" }
 recipe.timers      // [{ type: "timer", name: "", quantity: 20, units: "minutes" }]
 ```
 
-### Ordered Step Items
+### Sections and Steps
 
-Each step is a `RecipeStepItem[]` -- a flat array of text and typed tokens in document order. This lets you render rich step text with inline ingredient links, timer highlights, etc.
+Recipe content is organized into sections. Each section has a `name` (null for the unnamed default section) and `content` — an interleaved array of steps and text (notes).
+
+```ts
+import type { RecipeSection } from "cooklang-parse"
+
+const section: RecipeSection = recipe.sections[0]
+section.name    // null (default unnamed section)
+section.content // [{ type: "step", items: [...] }, { type: "step", items: [...] }]
+```
+
+Each step is `{ type: "step", items: RecipeStepItem[] }` — a flat array of text and typed tokens in document order. This lets you render rich step text with inline ingredient links, timer highlights, etc.
 
 ```ts
 import type { RecipeStepItem } from "cooklang-parse"
 
-const step: RecipeStepItem[] = recipe.steps[0]
+const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
+const items: RecipeStepItem[] = step.items
 // [
 //   { type: "text", value: "Mix " },
 //   { type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false },
 //   { type: "text", value: " and " },
 //   { type: "ingredient", name: "eggs", quantity: 3, units: "", fixed: false },
-//   { type: "text", value: ". Cook in " },
-//   { type: "cookware", name: "pan", quantity: 1, units: "" },
-//   { type: "text", value: " for " },
-//   { type: "timer", name: "", quantity: 20, units: "minutes" },
 //   { type: "text", value: "." },
 // ]
 ```
@@ -77,8 +85,8 @@ Use the `RecipeStepItem` union type to switch on `type` and render each token:
 ```ts
 import type { RecipeStepItem } from "cooklang-parse"
 
-function renderStep(step: RecipeStepItem[]): string {
-  return step.map(item => {
+function renderStep(items: RecipeStepItem[]): string {
+  return items.map(item => {
     switch (item.type) {
       case "text":
         return item.value
@@ -100,9 +108,11 @@ All types are exported and available for import:
 ```ts
 import type {
   CooklangRecipe,     // Top-level result from parseCooklang()
+  RecipeSection,      // { name, content: SectionContent[] }
+  SectionContent,     // { type: "step", items } | { type: "text", value }
   RecipeStepItem,     // Union: text | ingredient | cookware | timer
-  RecipeIngredient,   // { name, quantity, units, fixed, preparation? }
-  RecipeCookware,     // { name, quantity, units }
+  RecipeIngredient,   // { name, alias?, quantity, units, fixed, note? }
+  RecipeCookware,     // { name, alias?, quantity, units, note? }
   RecipeTimer,        // { name, quantity, units }
   ParseError,         // { message, position, severity }
 } from "cooklang-parse"
@@ -142,9 +152,13 @@ recipe.metadata.title    // "Easy Pancakes"
 recipe.metadata.servings // 4
 ```
 
+::: warning
+When YAML frontmatter (`---`) is present, `>> key: value` directives are parsed but not added to metadata (matching cooklang-rs behavior). Use one style or the other.
+:::
+
 ## Organize with Sections
 
-Use `==Section Name==` to divide a recipe into logical parts:
+Use `== Section Name ==` to divide a recipe into logical parts:
 
 ```txt
 == Dough ==
@@ -159,7 +173,15 @@ Fill the dough and bake in #oven for ~{25%minutes}.
 ```
 
 ```ts
-recipe.sections // ["Dough", "Filling", "Assembly"]
+recipe.sections.map(s => s.name)
+// ["Dough", "Filling", "Assembly"]
+
+// Each section's content is an array of steps and text:
+recipe.sections[0].content
+// [
+//   { type: "step", items: [{ type: "text", value: "Mix " }, ...] },
+//   { type: "step", items: [{ type: "text", value: "Knead for " }, ...] }
+// ]
 ```
 
 ## Next Steps

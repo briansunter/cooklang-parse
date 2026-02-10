@@ -12,7 +12,7 @@
 - Full Cooklang spec support including ingredients, cookware, timers, metadata, sections, notes, and YAML frontmatter
 - Written in TypeScript with exported type definitions
 - Single function API — `parseCooklang(source)` returns a structured recipe
-- 188 tests with canonical parity against the [Rust reference implementation](https://github.com/cooklang/cooklang-rs)
+- 213 tests with canonical parity against the [Rust reference implementation](https://github.com/cooklang/cooklang-rs)
 - Source position tracking and parse error reporting
 
 ## Installation
@@ -32,7 +32,9 @@ const recipe = parseCooklang(`
 >> servings: 4
 
 Preheat #oven to 180C.
+
 Mix @flour{250%g} and @eggs{3} in a #bowl{}.
+
 Bake for ~{20%minutes}.
 `)
 
@@ -42,30 +44,17 @@ recipe.cookware    // [{ type: "cookware", name: "oven", quantity: 1, units: "" 
 recipe.timers      // [{ type: "timer", name: "", quantity: 20, units: "minutes" }]
 recipe.errors      // [] (parse errors and warnings)
 
-// Each step is an array of text and inline component tokens:
-recipe.steps[0]
+// Steps are organized into sections:
+recipe.sections[0].name    // null (default unnamed section)
+recipe.sections[0].content // array of { type: "step", items: [...] } and { type: "text", value: "..." }
+
+// Each step contains ordered text + inline component tokens:
+const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
+step.items
 // [
 //   { type: "text", value: "Preheat " },
 //   { type: "cookware", name: "oven", quantity: 1, units: "" },
 //   { type: "text", value: " to 180C." }
-// ]
-
-recipe.steps[1]
-// [
-//   { type: "text", value: "Mix " },
-//   { type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false },
-//   { type: "text", value: " and " },
-//   { type: "ingredient", name: "eggs", quantity: 3, units: "", fixed: false },
-//   { type: "text", value: " in a " },
-//   { type: "cookware", name: "bowl", quantity: 1, units: "" },
-//   { type: "text", value: "." }
-// ]
-
-recipe.steps[2]
-// [
-//   { type: "text", value: "Bake for " },
-//   { type: "timer", name: "", quantity: 20, units: "minutes" },
-//   { type: "text", value: "." }
 // ]
 ```
 
@@ -86,9 +75,9 @@ recipe.steps[2]
 | `== Title ==` | Section header | `== For the sauce ==` |
 | `>> key: value` | Metadata directive | `>> servings: 4` |
 | `---` | YAML frontmatter block | See below |
-| `=@name{qty}` | Fixed quantity (won't scale) | `=@salt{1%tsp}` |
-| `@name{=qty}` | Fixed quantity (alternate) | `@salt{=1%tsp}` |
-| `@name{}(prep)` | Ingredient with preparation | `@flour{100%g}(sifted)` |
+| `@name{=qty%unit}` | Fixed quantity (won't scale) | `@salt{=1%tsp}` |
+| `@name{qty}(note)` | Ingredient with note | `@flour{100%g}(sifted)` |
+| `#name(note)` | Cookware with note | `#pan(large)` |
 | `@name\|alias{}` | Pipe alias syntax | `@ground beef\|beef{}` |
 
 ## API
@@ -100,17 +89,29 @@ Parses a Cooklang source string into a structured recipe object.
 ```typescript
 interface CooklangRecipe {
   metadata: Record<string, unknown>
-  steps: RecipeStepItem[][]
-  ingredients: RecipeIngredient[]
-  cookware: RecipeCookware[]
-  timers: RecipeTimer[]
-  sections: string[]
-  notes: string[]
+  sections: RecipeSection[]        // Sections with interleaved steps and notes
+  ingredients: RecipeIngredient[]  // Deduplicated across all steps
+  cookware: RecipeCookware[]       // Deduplicated across all steps
+  timers: RecipeTimer[]            // Deduplicated across all steps
   errors: ParseError[]
+  warnings: ParseError[]
 }
+
+interface RecipeSection {
+  name: string | null              // null for the default unnamed section
+  content: SectionContent[]
+}
+
+type SectionContent =
+  | { type: "step"; items: RecipeStepItem[] }
+  | { type: "text"; value: string }          // Notes (> lines)
 ```
 
-**`steps`** is an array of steps, where each step is an array of items:
+**`sections`** contains all recipe content. Each section has a `name` (null for the default section) and `content` — an interleaved array of steps and text (notes). Steps contain ordered `RecipeStepItem[]` arrays with text and typed tokens in document order.
+
+**`ingredients`**, **`cookware`**, and **`timers`** are deduplicated across all steps.
+
+### Types
 
 ```typescript
 type RecipeStepItem =
@@ -118,27 +119,24 @@ type RecipeStepItem =
   | RecipeIngredient
   | RecipeCookware
   | RecipeTimer
-```
 
-**`ingredients`**, **`cookware`**, and **`timers`** are deduplicated across all steps.
-
-### Types
-
-```typescript
 interface RecipeIngredient {
   type: "ingredient"
   name: string
+  alias?: string            // from @name|alias{} syntax
   quantity: number | string
-  units: string
+  units: string             // only % separator: @name{qty%unit}
   fixed: boolean
-  preparation?: string
+  note?: string             // from @name{}(note) syntax
 }
 
 interface RecipeCookware {
   type: "cookware"
   name: string
+  alias?: string
   quantity: number | string
-  units: string
+  units: string             // always ""
+  note?: string             // from #name(note) syntax
 }
 
 interface RecipeTimer {
@@ -173,9 +171,8 @@ const recipe = parseCooklang(`
 ---
 title: Sourdough Bread
 source: My grandmother
+servings: 2
 ---
-
->> servings: 2
 
 == Starter ==
 Mix @starter{100%g} with @water{100%g}
@@ -190,18 +187,20 @@ Knead in #mixing bowl{} for ~kneading{10%minutes}
 recipe.metadata
 // { title: "Sourdough Bread", source: "My grandmother", servings: 2 }
 
-recipe.sections
-// ["Starter", "Dough"]
+recipe.sections.map(s => s.name)
+// [null, "Starter", "Dough"]
 
 recipe.ingredients.map(i => `${i.quantity} ${i.units} ${i.name}`.trim())
 // ["100 g starter", "100 g water", "500 g flour", ...]
 ```
 
+> **Note:** When YAML frontmatter (`---`) is present, `>> key: value` directives are parsed but not added to metadata (matching the [cooklang-rs](https://github.com/cooklang/cooklang-rs) reference behavior). Use frontmatter or directives, not both.
+
 ## Development
 
 ```bash
 bun install          # Install dependencies
-bun test             # Run all 188 tests
+bun test             # Run all 213 tests
 bun run build        # Bundle + emit declarations
 bun run typecheck    # Type-check without emitting
 bun run lint         # Lint with Biome

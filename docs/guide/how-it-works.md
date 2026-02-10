@@ -10,16 +10,20 @@ The parser follows a single clean pipeline:
 Source Text
     |
     v
-[1] Pre-processing (extract >> directives)
+[1] Pre-processing (strip [- block comments -])
     |
     v
 [2] Ohm Grammar (PEG parsing -> parse tree)
+    |- Matches ingredients, cookware, timers, text
+    |- Matches >> directives and --- frontmatter
+    |- Matches sections, notes, comments
     |
     v
 [3] Semantic Actions (parse tree -> CooklangRecipe)
     |- Parse quantities to numbers (fractions, decimals)
     |- Split amounts on % into quantity + units
     |- Merge consecutive text items (multi-line steps)
+    |- Build sections with interleaved steps and notes
     |- Deduplicate ingredients, cookware, timers
 ```
 
@@ -53,16 +57,16 @@ This grammar rule reads: "An ingredient starts with `@`, followed by a word, opt
 The complete grammar is defined in `grammars/cooklang.ohm`. Here's the high-level structure:
 
 ```
-Recipe = Metadata? RecipeItem*
+Recipe = (MetadataDirective | blankLine)* Metadata? RecipeItem*
 
-RecipeItem = Section | Note | BlockComment | CommentLine | blankLine | Step
+RecipeItem = Section | MetadataDirective | Note | CommentLine | blankLine | Step
 
 Step = StepLine+
 
 StepItem = Ingredient | Cookware | Timer | Text
 ```
 
-A recipe is an optional metadata block followed by zero or more items. Items can be sections, notes, comments, blank lines, or steps. Steps are one or more lines, each containing ingredients, cookware, timers, or plain text.
+A recipe starts with optional leading directives, an optional YAML metadata block, then zero or more items. Items can be sections, directives, notes, comments, blank lines, or steps. Steps are one or more lines, each containing ingredients, cookware, timers, or plain text.
 
 ### Key Grammar Decisions
 
@@ -76,6 +80,8 @@ This means `@` alone isn't special -- it only starts an ingredient when followed
 
 **Comments need a space.** `"-- "` (with space) starts a comment, but `"--"` (without space) is plain text. This prevents `---` YAML front matter fences from being parsed as comments.
 
+**Directives are in-grammar.** The `MetadataDirective` rule matches `>> key: value` lines directly in the grammar (not pre-processed). `StepLine` has a `~MetadataDirective` negative lookahead to prevent multi-line steps from consuming directive lines.
+
 **Word characters include unicode.** The `wordChar` rule supports Latin extended, Cyrillic, and emoji characters:
 
 ```
@@ -88,11 +94,11 @@ After Ohm produces a parse tree, semantic actions transform each node. These are
 
 ```ts
 Ingredient(_child) {
-  return convertIngredient(src(this))
+  return convertIngredient(this.sourceString)
 }
 ```
 
-The semantic action receives the matched grammar elements. The `convertIngredient` helper does the actual work of extracting name, quantity, unit, and preparation from the matched text.
+The semantic action receives the matched grammar elements. The `convertIngredient` helper does the actual work of extracting name, quantity, unit, and note from the matched text.
 
 ### Token Parsing in TypeScript
 
@@ -103,23 +109,26 @@ Key helpers in `src/semantics.ts`:
 | Function | Purpose |
 |----------|---------|
 | `parseQuantity()` | Parse numeric strings, fractions (`1/2` -> `0.5`), decimals |
-| `parseAmount()` | Split `qty%unit` or `qty unit` into quantity + units |
-| `convertIngredient()` | Extract name, amount, fixed flag, preparation from `@token` |
-| `convertCookware()` | Extract name and quantity from `#token` |
+| `parseAmount()` | Split `qty%unit` on `%` separator into quantity + units |
+| `parseComponent()` | Extract name, alias (pipe syntax), and brace content |
+| `convertIngredient()` | Extract name, alias, amount, fixed flag, note from `@token` |
+| `convertCookware()` | Extract name, alias, quantity, note from `#token` |
 | `convertTimer()` | Extract name, quantity, units from `~token` |
 | `mergeConsecutiveTexts()` | Join adjacent text items (multi-line steps) |
-| `collectUnique()` | Deduplicate items across steps |
+| `collectUnique()` | Deduplicate items across sections |
 
 ## The `parseCooklang` Function
 
 The exported `parseCooklang()` function orchestrates the full pipeline:
 
-1. **Extract directives** -- `>> key: value` lines are pulled out before grammar parsing
-2. **Grammar match** -- Ohm parses the stripped source against `cooklang.ohm`
-3. **Semantic evaluation** -- The `toAST` operation walks the parse tree, producing steps, sections, and notes
-4. **YAML front matter** -- If present, parsed and merged with directive metadata
-5. **Deduplication** -- Ingredients, cookware, and timers are collected and deduplicated across all steps
-6. **Return** -- A single `CooklangRecipe` object with all parsed data
+1. **Strip block comments** -- `[- ... -]` block comments are replaced with spaces (preserving offsets)
+2. **Grammar match** -- Ohm parses the source against `cooklang.ohm`
+3. **Semantic evaluation** -- The `toAST` operation walks the parse tree, producing steps, sections, notes, and directives
+4. **YAML front matter** -- If present, parsed with the `yaml` library
+5. **Metadata assembly** -- Frontmatter data merged with directive metadata (when no frontmatter, directives are added; when frontmatter exists, directives are suppressed)
+6. **Section building** -- Ordered semantic items are assembled into `RecipeSection[]` with interleaved steps and notes; empty implicit sections are filtered out
+7. **Deduplication** -- Ingredients, cookware, and timers are collected and deduplicated across all sections
+8. **Return** -- A single `CooklangRecipe` object with all parsed data
 
 ## File Map
 

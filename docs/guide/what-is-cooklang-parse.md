@@ -15,7 +15,7 @@ The `@` marks ingredients, `#` marks cookware, and `~` marks timers. That's the 
 
 ## Why this parser?
 
-- **Simple API** - One function call to parse a recipe into structured data with ordered step items
+- **Simple API** - One function call to parse a recipe into structured data with sections and ordered step items
 - **Ordered items** - Steps contain text interleaved with typed tokens, so you can render rich step text with inline links
 - **Numeric quantities** - Quantities are parsed to numbers when possible (`250` not `"250"`, `1/2` becomes `0.5`)
 - **Spec-compliant** - Verified against the official reference implementation with 57+ canonical test cases
@@ -34,7 +34,9 @@ servings: 2
 ---
 
 Crack @eggs{4} into a #bowl and whisk.
+
 Melt @butter{1%tbsp} in a #non-stick pan{} over medium heat.
+
 Pour in eggs and stir for ~{3%minutes}.
 `)
 
@@ -52,8 +54,9 @@ console.log(recipe.cookware)
 console.log(recipe.timers)
 // [{ type: "timer", name: "", quantity: 3, units: "minutes" }]
 
-// Steps are ordered arrays — render rich text with inline ingredient links
-recipe.steps[0]
+// Steps are organized into sections with interleaved content
+const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
+step.items
 // [
 //   { type: "text", value: "Crack " },
 //   { type: "ingredient", name: "eggs", quantity: 4, units: "", fixed: false },
