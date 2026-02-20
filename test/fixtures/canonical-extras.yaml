@@ -58,8 +58,7 @@ tests:
       steps: []
       metadata: {}
       notes:
-        - "Note one"
-        - "Note two"
+        - "Note one Note two"
 
   testNoteWithStep:
     source: "Add @flour{250%g}.\n\n> Chef's tip: sift first\n"
@@ -252,8 +251,7 @@ tests:
         - - type: text
             value: "Add "
           - type: ingredient
-            name: white wine
-            alias: wine
+            name: white wine|wine
             quantity: 100
             units: ml
           - type: text

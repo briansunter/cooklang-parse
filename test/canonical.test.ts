@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { parseToCanonical, type CanonicalResult } from "./canonical-helper"
+import { type CanonicalResult, parseToCanonical } from "./canonical-helper"
 
 interface CanonicalCase {
   source: string
@@ -39,7 +39,10 @@ function loadCanonicalCases(): Array<[string, CanonicalCase]> {
   return Object.entries(parsed.tests)
     .map(([key, testCase]) => {
       const name = key.replace(/^test/, "")
-      return [name, { source: testCase.source, result: normalizeExpectedResult(testCase.result) }] as [string, CanonicalCase]
+      return [
+        name,
+        { source: testCase.source, result: normalizeExpectedResult(testCase.result) },
+      ] as [string, CanonicalCase]
     })
     .sort(([a], [b]) => a.localeCompare(b))
 }
@@ -61,11 +64,13 @@ test("legacy frontmatter metadata remains supported", () => {
   const result = parseToCanonical(source)
 
   expect(result).toEqual({
-    steps: [[
-      { type: "text", value: "Add " },
-      { type: "ingredient", name: "flour", quantity: 250, units: "g" },
-      { type: "text", value: "." },
-    ]],
+    steps: [
+      [
+        { type: "text", value: "Add " },
+        { type: "ingredient", name: "flour", quantity: 250, units: "g" },
+        { type: "text", value: "." },
+      ],
+    ],
     metadata: { title: "Pancakes" },
   })
 })

@@ -153,7 +153,7 @@ recipe.metadata.servings // 4
 ```
 
 ::: warning
-When YAML frontmatter (`---`) is present, `>> key: value` directives are parsed but not added to metadata (matching cooklang-rs behavior). Use one style or the other.
+When YAML frontmatter (`---`) is present, non-special `>> key: value` lines become regular step text. In `{ extensions: "all" }`, special directives (`[mode]`, `[define]`, `[duplicate]`) still act as parser configuration.
 :::
 
 ## Organize with Sections

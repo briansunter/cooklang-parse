@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { parseToExtendedCanonical, type ExtendedCanonicalResult } from "./canonical-helper"
+import { type ExtendedCanonicalResult, parseToExtendedCanonical } from "./canonical-helper"
 
 interface ExtendedCase {
   source: string
@@ -38,10 +38,10 @@ function loadExtendedCases(): Array<[string, ExtendedCase]> {
   return Object.entries(parsed.tests)
     .map(([key, testCase]) => {
       const name = key.replace(/^test/, "")
-      return [name, { source: testCase.source, result: normalizeExpectedResult(testCase.result) }] as [
-        string,
-        ExtendedCase,
-      ]
+      return [
+        name,
+        { source: testCase.source, result: normalizeExpectedResult(testCase.result) },
+      ] as [string, ExtendedCase]
     })
     .sort(([a], [b]) => a.localeCompare(b))
 }

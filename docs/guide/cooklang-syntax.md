@@ -110,7 +110,7 @@ Mix @flour{300%g} with @cocoa powder{50%g}.
 ```
 
 ::: warning
-When YAML frontmatter (`---`) is present, `>> key: value` directives are parsed but not added to metadata. Use one style or the other.
+When YAML frontmatter (`---`) is present, non-special `>> key: value` lines are treated as regular step text. In `{ extensions: "all" }`, special directives like `[mode]` and `[define]` still apply as configuration.
 :::
 
 ## Sections

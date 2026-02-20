@@ -26,24 +26,26 @@ A Cooklang recipe parser that converts Cooklang markup into structured data. Use
 ### Single parsing pipeline
 
 ```
-grammars/cooklang.ohm  →  src/semantics.ts  →  CooklangRecipe
-     (grammar)            (parse + convert)      (src/types.ts)
+grammars/cooklang.ohm  →  src/parser/ohm-ast.ts  →  src/parse-cooklang.ts  →  CooklangRecipe
+     (grammar)              (ohm semantic layer)      (manual post-process)      (src/types.ts)
 ```
 
 - `grammars/cooklang.ohm` — Ohm PEG grammar defining Cooklang syntax
-- `src/semantics.ts` — Ohm semantic actions (`toAST` operation) and all conversion logic (ingredients, cookware, timers, metadata, YAML frontmatter). This is the core file — grammar matching, token parsing, and output construction all happen here. Exports `parseCooklang()` and `grammar`.
+- `src/parser/ohm-ast.ts` — Ohm grammar binding and semantic actions (`toAST`) that convert CST into an ordered intermediate semantic result (steps, sections, notes, directives, frontmatter).
+- `src/parse-cooklang.ts` — Manual parser pipeline and orchestration: preprocessing, extensions, frontmatter parsing, metadata assembly, step transformations, dedupe, warnings/errors.
+- `src/semantics.ts` — Backward-compatible facade that re-exports `parseCooklang()` and `grammar`.
 - `src/types.ts` — TypeScript types for the output (`CooklangRecipe`, `RecipeIngredient`, `RecipeCookware`, `RecipeTimer`, etc.)
-- `src/index.ts` — Re-exports from `semantics.ts`
+- `src/index.ts` — Public API exports
 - `test/canonical-helper.ts` — `parseToCanonical()` wrapper that adapts `parseCooklang` output to the canonical test format; also exports `getSteps()`, `getNotes()`, `getSectionNames()` helpers
 
 ### How parsing works
 
 1. `stripBlockComments()` removes `[- ... -]` block comments (replaced with spaces preserving offsets)
-2. `grammar.match()` parses the source against `cooklang.ohm` (directives handled in-grammar via `MetadataDirective` rule)
-3. `semantics(matchResult).toAST()` walks the CST producing steps, sections, notes, directives, and frontmatter YAML
-4. Helper functions (`convertIngredient`, `convertCookware`, `convertTimer`) parse raw `sourceString` from Ohm nodes — the grammar captures token boundaries, TypeScript extracts quantities/units/names
-5. `parseYamlFrontmatter()` parses `---` blocks, then metadata is merged: YAML frontmatter + directives (directives win on conflict)
-6. `collectUnique()` deduplicates ingredients/cookware/timers across all steps
+2. `parseWithOhm()` runs `grammar.match()` and `toAST()` to produce an ordered semantic result
+3. Ohm-layer helpers (`buildIngredient`, `buildCookware`, `parseQuantity`) normalize core token payloads
+4. `parseYamlFrontmatter()` parses `---` blocks, then metadata is assembled from YAML + directives (per mode/frontmatter rules)
+5. Manual step transforms run (`applyAdvancedUnits`, `applyAliasMode`, `applyInlineQuantityExtraction`, mode checks)
+6. `collectUniqueFromSteps()` deduplicates ingredients/cookware/timers across all steps
 
 ### Cooklang syntax quick reference
 
@@ -67,7 +69,7 @@ grammars/cooklang.ohm  →  src/semantics.ts  →  CooklangRecipe
 
 ### Key design details
 
-- Token parsing happens in TypeScript helpers (`convertIngredient`, `convertCookware`, `convertTimer`), not in the grammar. The grammar only captures boundaries.
+- Token parsing happens in TypeScript helpers (`buildIngredient`, `buildCookware`, `parseQuantity`), not in the grammar. The grammar only captures boundaries.
 - `componentWordChar = wordChar | "|"` allows pipe alias syntax in component names.
 - `wordChar` includes emoji ranges and unicode Latin/Cyrillic, matching the canonical spec.
 - The `Text` grammar rule uses negative lookahead to stop before `@`+ingredientStartChar, `#`+cookwareStartChar, `~`+wordChar/`{`, and `"-- "`.

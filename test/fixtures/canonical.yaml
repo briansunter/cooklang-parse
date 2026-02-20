@@ -662,7 +662,11 @@ tests:
       steps:
         -
           - type: text
-            value: "It is ~ {5}"
+            value: "It is "
+          - type: timer
+            quantity: 5
+            units: ""
+            name: ""
       metadata: {}
 
 
@@ -673,7 +677,9 @@ tests:
       steps:
         -
           - type: text
-            value: "It is ~ 5"
+            value: "It is "
+          - type: text
+            value: "~ 5"
       metadata: {}
 
 
@@ -736,7 +742,11 @@ tests:
       steps:
         -
           - type: text
-            value: "Message @ example{}"
+            value: "Message "
+          - type: ingredient
+            quantity: some
+            units: ""
+            name: "example"
       metadata: {}
 
 
@@ -747,7 +757,9 @@ tests:
       steps:
         -
           - type: text
-            value: "Message me @ example"
+            value: "Message me "
+          - type: text
+            value: "@ example"
       metadata: {}
 
 
@@ -809,7 +821,10 @@ tests:
       steps:
         -
           - type: text
-            value: "Recipe # 10{}"
+            value: "Recipe "
+          - type: cookware
+            quantity: 1
+            name: "10"
       metadata: {}
 
 
@@ -820,7 +835,9 @@ tests:
       steps:
         -
           - type: text
-            value: "Recipe # 5"
+            value: "Recipe "
+          - type: text
+            value: "# 5"
       metadata: {}
 
 # NOTE: Unicode newlines may be impossible to test using YAML,

@@ -11,8 +11,8 @@
 
 - Full Cooklang spec support including ingredients, cookware, timers, metadata, sections, notes, and YAML frontmatter
 - Written in TypeScript with exported type definitions
-- Single function API — `parseCooklang(source)` returns a structured recipe
-- 213 tests with canonical parity against the [Rust reference implementation](https://github.com/cooklang/cooklang-rs)
+- Single function API with extension presets — `parseCooklang(source, options?)`
+- 235 tests with parity coverage against [cooklang-rs](https://github.com/cooklang/cooklang-rs) canonical and default parser behaviors
 - Source position tracking and parse error reporting
 
 ## Installation
@@ -42,6 +42,7 @@ recipe.metadata    // { servings: 4 }
 recipe.ingredients // [{ type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false }, ...]
 recipe.cookware    // [{ type: "cookware", name: "oven", quantity: 1, units: "" }, ...]
 recipe.timers      // [{ type: "timer", name: "", quantity: 20, units: "minutes" }]
+recipe.inlineQuantities // [] in canonical mode
 recipe.errors      // [] (parse errors and warnings)
 
 // Steps are organized into sections:
@@ -82,9 +83,18 @@ step.items
 
 ## API
 
-### `parseCooklang(source: string): CooklangRecipe`
+### `parseCooklang(source: string, options?: ParseCooklangOptions): CooklangRecipe`
 
 Parses a Cooklang source string into a structured recipe object.
+
+```typescript
+interface ParseCooklangOptions {
+  extensions?: "canonical" | "all" // default: "canonical"
+}
+```
+
+- `"canonical"`: canonical/spec behavior (extensions off)
+- `"all"`: cooklang-rs default behavior (modes + inline temperature quantities)
 
 ```typescript
 interface CooklangRecipe {
@@ -93,6 +103,7 @@ interface CooklangRecipe {
   ingredients: RecipeIngredient[]  // Deduplicated across all steps
   cookware: RecipeCookware[]       // Deduplicated across all steps
   timers: RecipeTimer[]            // Deduplicated across all steps
+  inlineQuantities: Array<{ quantity: number | string; units: string }>
   errors: ParseError[]
   warnings: ParseError[]
 }
@@ -103,7 +114,7 @@ interface RecipeSection {
 }
 
 type SectionContent =
-  | { type: "step"; items: RecipeStepItem[] }
+  | { type: "step"; items: RecipeStepItem[]; number?: number }
   | { type: "text"; value: string }          // Notes (> lines)
 ```
 
@@ -194,13 +205,13 @@ recipe.ingredients.map(i => `${i.quantity} ${i.units} ${i.name}`.trim())
 // ["100 g starter", "100 g water", "500 g flour", ...]
 ```
 
-> **Note:** When YAML frontmatter (`---`) is present, `>> key: value` directives are parsed but not added to metadata (matching the [cooklang-rs](https://github.com/cooklang/cooklang-rs) reference behavior). Use frontmatter or directives, not both.
+> **Note:** With YAML frontmatter (`---`), non-special `>> key: value` lines are treated as regular step text (matching [cooklang-rs](https://github.com/cooklang/cooklang-rs)). In `{ extensions: "all" }`, `[mode]/[define]/[duplicate]` directives still apply as configuration.
 
 ## Development
 
 ```bash
 bun install          # Install dependencies
-bun test             # Run all 213 tests
+bun test             # Run all 235 tests
 bun run build        # Bundle + emit declarations
 bun run typecheck    # Type-check without emitting
 bun run lint         # Lint with Biome

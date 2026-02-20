@@ -5,7 +5,10 @@ Parse a Cooklang source string into a structured recipe with sections, ordered s
 ## Signature
 
 ```ts
-function parseCooklang(source: string): CooklangRecipe
+function parseCooklang(
+  source: string,
+  options?: { extensions?: "canonical" | "all" }
+): CooklangRecipe
 ```
 
 ## Parameters
@@ -13,6 +16,7 @@ function parseCooklang(source: string): CooklangRecipe
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `source` | `string` | Cooklang recipe source text |
+| `options` | `{ extensions?: "canonical" \| "all" }` | Parser preset (`"canonical"` default, or `"all"` for cooklang-rs default extensions) |
 
 ## Returns
 
@@ -42,6 +46,7 @@ recipe.ingredients
 
 recipe.cookware     // [{ type: "cookware", name: "toaster", quantity: 1, units: "" }]
 recipe.timers       // [{ type: "timer", name: "", quantity: 3, units: "minutes" }]
+recipe.inlineQuantities // [] in canonical mode
 
 // Steps are inside sections:
 const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
@@ -68,5 +73,6 @@ recipe.errors       // []
 - **Numeric quantities** -- Quantities are parsed to numbers when possible (`250` not `"250"`, fractions like `1/2` become `0.5`). Non-numeric quantities remain strings.
 - **Default values** -- Ingredients without a quantity get `"some"`. Cookware defaults to quantity `1`. The `units` field is always present (empty string `""` if no unit).
 - **Step structure** -- Each step is a flat `RecipeStepItem[]` array with text and tokens in document order.
-- **Metadata** -- YAML front matter (`---`) and directives (`>> key: value`) both populate `metadata`. When frontmatter is present, directives are parsed but not added to metadata (matching cooklang-rs behavior).
+- **Metadata** -- In canonical mode, `>> key: value` lines populate metadata only when no frontmatter exists. With frontmatter, non-special `>>` lines are treated as regular text steps.
+- **Extensions preset** -- Use `{ extensions: "all" }` to enable cooklang-rs default parser behavior, including `[mode]/[define]/[duplicate]` handling and inline temperature quantities.
 - **Quantity separator** -- Only `%` separates quantity from unit: `@flour{250%g}`. Without `%`, the entire brace content is the quantity: `@water{2 cups}` gives `quantity: "2 cups", units: ""`.

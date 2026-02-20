@@ -64,4 +64,4 @@ const items: RecipeStepItem[] = step.items
 - **Ordered Step Items** -- Steps are `RecipeStepItem[]` arrays with text interleaved with typed tokens, so you can render inline ingredient links, timer highlights, etc.
 - **Numeric Quantities** -- Quantities are parsed to numbers when possible (`250` not `"250"`, fractions like `1/2` become `0.5`).
 - **Type-Safe** -- Complete TypeScript type definitions for every output type: `CooklangRecipe`, `RecipeSection`, `RecipeIngredient`, `RecipeCookware`, `RecipeTimer`, `ParseError`.
-- **Spec Compliant** -- 213 tests including 57+ canonical test cases verified against the official cooklang-rs reference implementation.
+- **Spec Compliant** -- 235 tests with canonical and default-parser parity checks against the official cooklang-rs reference implementation.

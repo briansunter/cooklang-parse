@@ -19,15 +19,22 @@ Source Text
     |- Matches sections, notes, comments
     |
     v
-[3] Semantic Actions (parse tree -> CooklangRecipe)
-    |- Parse quantities to numbers (fractions, decimals)
-    |- Split amounts on % into quantity + units
-    |- Merge consecutive text items (multi-line steps)
-    |- Build sections with interleaved steps and notes
+[3] Semantic Actions (parse tree -> ordered semantic AST)
+    |- Build typed step items, sections, notes, directives
+    |- Preserve raw component tokens for later modes/text rendering
+    |- Normalize base quantities (fractions, decimals)
+    |
+    v
+[4] Manual Post-Processing (semantic AST -> CooklangRecipe)
+    |- Parse YAML frontmatter, merge metadata modes/directives
+    |- Apply extension transforms (advanced units, aliases, inline quantities)
+    |- Run mode checks and validation warnings/errors
     |- Deduplicate ingredients, cookware, timers
 ```
 
-Everything happens in a single file (`src/semantics.ts`). There is no separate converter or AST layer -- the Ohm semantic actions directly produce `CooklangRecipe` output.
+The parser is intentionally split into two layers:
+- **Ohm layer** (`src/parser/ohm-ast.ts`) handles grammar matching and CST -> ordered semantic AST conversion.
+- **Manual layer** (`src/parse-cooklang.ts` + helpers in `src/parser/`) handles frontmatter, metadata rules, extension behavior, validations, and final recipe assembly.
 
 ## What is Ohm.js?
 
@@ -90,42 +97,42 @@ wordChar = letter | digit | "_" | "-" | emoji | otherWordChar
 
 ## Semantic Actions
 
-After Ohm produces a parse tree, semantic actions transform each node. These are defined in `src/semantics.ts`:
+After Ohm produces a parse tree, semantic actions transform each node. These are defined in `src/parser/ohm-ast.ts`:
 
 ```ts
-Ingredient(_child) {
-  return convertIngredient(this.sourceString)
+Ingredient_multi(...) {
+  return attachRaw(buildIngredient(rawName, amount, note), this.sourceString)
 }
 ```
 
-The semantic action receives the matched grammar elements. The `convertIngredient` helper does the actual work of extracting name, quantity, unit, and note from the matched text.
+The semantic action receives matched grammar elements and constructs typed step items directly, while preserving raw text for fallback/text modes.
 
 ### Token Parsing in TypeScript
 
-A deliberate design choice: the grammar captures **token boundaries** (where an ingredient starts and ends), but the **content parsing** (splitting `{250%g}` into quantity `250` and unit `g`) happens in TypeScript helper functions. This keeps the grammar simple and makes the parsing logic easy to test independently.
+A deliberate design choice: the grammar captures **token boundaries** (where an ingredient starts and ends), but the **content parsing and behavior rules** happen in TypeScript helpers. This keeps the grammar simple and makes behavior easier to test independently.
 
-Key helpers in `src/semantics.ts`:
+Key helpers by layer:
 
 | Function | Purpose |
 |----------|---------|
+| `buildIngredient()` | Build normalized ingredient items from grammar captures |
+| `buildCookware()` | Build normalized cookware items from grammar captures |
 | `parseQuantity()` | Parse numeric strings, fractions (`1/2` -> `0.5`), decimals |
-| `parseAmount()` | Split `qty%unit` on `%` separator into quantity + units |
-| `parseComponent()` | Extract name, alias (pipe syntax), and brace content |
-| `convertIngredient()` | Extract name, alias, amount, fixed flag, note from `@token` |
-| `convertCookware()` | Extract name, alias, quantity, note from `#token` |
-| `convertTimer()` | Extract name, quantity, units from `~token` |
-| `mergeConsecutiveTexts()` | Join adjacent text items (multi-line steps) |
-| `collectUnique()` | Deduplicate items across sections |
+| `parseYamlFrontmatter()` | Parse and validate YAML frontmatter with fallback parsing |
+| `applyAdvancedUnits()` | Split `"7 k"` into quantity + unit in `extensions: "all"` |
+| `applyInlineQuantityExtraction()` | Extract inline quantities from text in `extensions: "all"` |
+| `checkStandardMetadata()` | Validate standard metadata key types (cooklang-rs parity) |
+| `collectUniqueFromSteps()` | Deduplicate items across all section steps |
 
 ## The `parseCooklang` Function
 
 The exported `parseCooklang()` function orchestrates the full pipeline:
 
 1. **Strip block comments** -- `[- ... -]` block comments are replaced with spaces (preserving offsets)
-2. **Grammar match** -- Ohm parses the source against `cooklang.ohm`
-3. **Semantic evaluation** -- The `toAST` operation walks the parse tree, producing steps, sections, notes, and directives
-4. **YAML front matter** -- If present, parsed with the `yaml` library
-5. **Metadata assembly** -- Frontmatter data merged with directive metadata (when no frontmatter, directives are added; when frontmatter exists, directives are suppressed)
+2. **Grammar match + semantic AST** -- Ohm parses source and `toAST` builds ordered semantic items
+3. **YAML front matter** -- If present, parsed with the `yaml` library
+4. **Metadata assembly** -- Frontmatter data merged with old-style directives when applicable (in canonical mode, directives only populate metadata when no frontmatter; with frontmatter they are treated as regular text lines unless they are special mode directives in `extensions: "all"`).
+5. **Step transformations** -- Extension behavior and validation passes run on step items
 6. **Section building** -- Ordered semantic items are assembled into `RecipeSection[]` with interleaved steps and notes; empty implicit sections are filtered out
 7. **Deduplication** -- Ingredients, cookware, and timers are collected and deduplicated across all sections
 8. **Return** -- A single `CooklangRecipe` object with all parsed data
@@ -135,6 +142,9 @@ The exported `parseCooklang()` function orchestrates the full pipeline:
 | File | Purpose |
 |------|---------|
 | `grammars/cooklang.ohm` | PEG grammar definition |
-| `src/semantics.ts` | Ohm semantic actions, token parsing helpers, and `parseCooklang()` |
+| `src/parser/ohm-ast.ts` | Ohm grammar binding and semantic actions (`toAST`) |
+| `src/parse-cooklang.ts` | Manual pipeline orchestration and final assembly |
+| `src/parser/*.ts` | Focused helpers for metadata, frontmatter, transforms, and utilities |
+| `src/semantics.ts` | Backward-compatible re-export facade |
 | `src/types.ts` | TypeScript type definitions |
 | `src/index.ts` | Public API exports |

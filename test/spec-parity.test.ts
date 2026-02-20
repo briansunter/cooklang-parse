@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { parseCooklang } from "../src/index"
-import { getSteps, getNotes, getSectionNames } from "./canonical-helper"
+import { getSectionNames, getSteps } from "./canonical-helper"
 
 test("spec parity: comment-only recipe is empty", () => {
   const source = `-- "empty" recipe
@@ -49,8 +49,14 @@ another
   const recipe = parseCooklang(source)
 
   expect(getSteps(recipe)).toHaveLength(2)
-  const step1Text = getSteps(recipe)[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
-  const step2Text = getSteps(recipe)[1]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  const step1Text = getSteps(recipe)[0]
+    ?.filter(i => i.type === "text")
+    .map(i => (i.type === "text" ? i.value : ""))
+    .join("")
+  const step2Text = getSteps(recipe)[1]
+    ?.filter(i => i.type === "text")
+    .map(i => (i.type === "text" ? i.value : ""))
+    .join("")
   expect(step1Text).toBe("a step")
   expect(step2Text).toBe("another")
 })
@@ -66,7 +72,10 @@ another step
 
   expect(recipe.metadata.meta).toBe("val")
   const stepTexts = getSteps(recipe).map(s =>
-    s.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+    s
+      .filter(i => i.type === "text")
+      .map(i => (i.type === "text" ? i.value : ""))
+      .join(""),
   )
   expect(stepTexts).toEqual(["a step", "another step"])
   expect(getSectionNames(recipe)).toEqual(["section"])
@@ -88,7 +97,10 @@ step
   // In canonical/grammar-based parsing, [mode]: components doesn't suppress steps
   // (that behavior requires the extension to be enabled)
   const stepTexts = getSteps(recipe).map(s =>
-    s.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+    s
+      .filter(i => i.type === "text")
+      .map(i => (i.type === "text" ? i.value : ""))
+      .join(""),
   )
   expect(stepTexts).toEqual(["", "step"])
 })
@@ -116,10 +128,10 @@ test("spec parity: note suffix on ingredient", () => {
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.ingredients[0]!.name).toBe("flour")
-  expect(recipe.ingredients[0]!.quantity).toBe(100)
-  expect(recipe.ingredients[0]!.units).toBe("g")
-  expect(recipe.ingredients[0]!.note).toBe("sifted")
+  expect(recipe.ingredients[0]?.name).toBe("flour")
+  expect(recipe.ingredients[0]?.quantity).toBe(100)
+  expect(recipe.ingredients[0]?.units).toBe("g")
+  expect(recipe.ingredients[0]?.note).toBe("sifted")
 })
 
 test("spec parity: fixed quantity inside braces", () => {
@@ -127,10 +139,10 @@ test("spec parity: fixed quantity inside braces", () => {
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.ingredients[0]!.name).toBe("salt")
-  expect(recipe.ingredients[0]!.quantity).toBe(1)
-  expect(recipe.ingredients[0]!.units).toBe("tsp")
-  expect(recipe.ingredients[0]!.fixed).toBe(true)
+  expect(recipe.ingredients[0]?.name).toBe("salt")
+  expect(recipe.ingredients[0]?.quantity).toBe(1)
+  expect(recipe.ingredients[0]?.units).toBe("tsp")
+  expect(recipe.ingredients[0]?.fixed).toBe(true)
 })
 
 test("spec parity: canonical format for fixed quantity", () => {
@@ -150,7 +162,10 @@ test("spec parity: comment requires space after dashes", () => {
   const recipe = parseCooklang(source)
 
   expect(getSteps(recipe)).toHaveLength(1)
-  const textContent = getSteps(recipe)[0]!.filter(i => i.type === "text").map(i => i.type === "text" ? i.value : "").join("")
+  const textContent = getSteps(recipe)[0]
+    ?.filter(i => i.type === "text")
+    .map(i => (i.type === "text" ? i.value : ""))
+    .join("")
   expect(textContent).toContain("text--more text")
 })
 
@@ -178,33 +193,33 @@ tags: [unclosed
 describe("cooklang-rs parity", () => {
   test("mixed fraction: 1 1/2", () => {
     const recipe = parseCooklang("@flour{1 1/2%cups}\n")
-    expect(recipe.ingredients[0]!.quantity).toBe(1.5)
-    expect(recipe.ingredients[0]!.units).toBe("cups")
+    expect(recipe.ingredients[0]?.quantity).toBe(1.5)
+    expect(recipe.ingredients[0]?.units).toBe("cups")
   })
 
   test("mixed fraction: 0 1/2", () => {
     const recipe = parseCooklang("@flour{0 1/2%cup}\n")
-    expect(recipe.ingredients[0]!.quantity).toBe(0.5)
+    expect(recipe.ingredients[0]?.quantity).toBe(0.5)
   })
 
   test("mixed fraction with spaces around slash: 1 1 / 2", () => {
     const recipe = parseCooklang("@flour{1 1 / 2%cups}\n")
-    expect(recipe.ingredients[0]!.quantity).toBe(1.5)
+    expect(recipe.ingredients[0]?.quantity).toBe(1.5)
   })
 
   test("simple fraction with spaces around slash: 1 / 2", () => {
     const recipe = parseCooklang("@flour{1 / 2%cup}\n")
-    expect(recipe.ingredients[0]!.quantity).toBe(0.5)
+    expect(recipe.ingredients[0]?.quantity).toBe(0.5)
   })
 
   test("leading-zero mixed fraction stays string", () => {
     const recipe = parseCooklang("@flour{01 1/2%cup}\n")
-    expect(recipe.ingredients[0]!.quantity).toBe("01 1/2")
+    expect(recipe.ingredients[0]?.quantity).toBe("01 1/2")
   })
 
   test("space-separated number is string, not collapsed", () => {
     const recipe = parseCooklang("@flour{1 2}\n")
-    expect(recipe.ingredients[0]!.quantity).toBe("1 2")
+    expect(recipe.ingredients[0]?.quantity).toBe("1 2")
   })
 
   test("directive values are strings", () => {
@@ -244,47 +259,43 @@ describe("directive warnings", () => {
   test(">> servings: 6 produces servings type warning", () => {
     const recipe = parseCooklang(">> servings: 6\n")
     const servingsWarning = recipe.warnings.find(w =>
-      w.message.includes("expected a number, got a string"),
+      w.message.includes("Unsupported value for key"),
     )
     expect(servingsWarning).toBeDefined()
-    expect(servingsWarning!.help).toBe("It will be stored as a regular metadata entry")
+    expect(servingsWarning?.help).toBe("It will be a regular metadata entry")
   })
 
   test(">> servings: 6 produces deprecated syntax warning with YAML suggestion", () => {
     const recipe = parseCooklang(">> servings: 6\n")
-    const deprecatedWarning = recipe.warnings.find(w =>
-      w.message.includes("deprecated"),
-    )
+    const deprecatedWarning = recipe.warnings.find(w => w.message.includes("deprecated"))
     expect(deprecatedWarning).toBeDefined()
-    expect(deprecatedWarning!.help).toContain("---")
-    expect(deprecatedWarning!.help).toContain("servings: '6'")
+    expect(deprecatedWarning?.help).toContain("---")
+    expect(deprecatedWarning?.help).toContain("servings: '6'")
   })
 
   test(">> title: Test (no servings) produces only deprecation warning", () => {
     const recipe = parseCooklang(">> title: Test\n")
     expect(recipe.warnings).toHaveLength(1)
-    expect(recipe.warnings[0]!.message).toContain("deprecated")
+    expect(recipe.warnings[0]?.message).toContain("deprecated")
     // No servings type warning
-    expect(recipe.warnings.some(w => w.message.includes("expected a number"))).toBe(false)
+    expect(recipe.warnings.some(w => w.message.includes("Unsupported value for key"))).toBe(false)
   })
 
   test("YAML frontmatter produces no directive warnings", () => {
     const source = "---\nservings: 6\n---\n\nMix @flour{}\n"
     const recipe = parseCooklang(source)
     const directiveWarnings = recipe.warnings.filter(
-      w => w.message.includes("deprecated") || w.message.includes("expected a number"),
+      w => w.message.includes("deprecated") || w.message.includes("Unsupported value for key"),
     )
     expect(directiveWarnings).toHaveLength(0)
   })
 
   test("warning help field contains YAML frontmatter replacement text", () => {
     const recipe = parseCooklang(">> servings: 6\n>> title: My Recipe\n")
-    const deprecatedWarning = recipe.warnings.find(w =>
-      w.message.includes("deprecated"),
-    )
+    const deprecatedWarning = recipe.warnings.find(w => w.message.includes("deprecated"))
     expect(deprecatedWarning).toBeDefined()
-    expect(deprecatedWarning!.help).toContain("---")
-    expect(deprecatedWarning!.help).toContain("servings: '6'")
-    expect(deprecatedWarning!.help).toContain("title: My Recipe")
+    expect(deprecatedWarning?.help).toContain("---")
+    expect(deprecatedWarning?.help).toContain("servings: '6'")
+    expect(deprecatedWarning?.help).toContain("title: My Recipe")
   })
 })

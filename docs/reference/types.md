@@ -11,6 +11,8 @@ import type {
   RecipeIngredient,
   RecipeCookware,
   RecipeTimer,
+  RecipeInlineQuantity,
+  ParseCooklangOptions,
   ParseError,
   SourcePosition,
 } from "cooklang-parse"
@@ -27,6 +29,7 @@ interface CooklangRecipe {
   ingredients: RecipeIngredient[]    // Deduplicated across all steps
   cookware: RecipeCookware[]         // Deduplicated across all steps
   timers: RecipeTimer[]              // Deduplicated across all steps
+  inlineQuantities: RecipeInlineQuantity[] // Inline temperature quantities (extensions: "all")
   errors: ParseError[]               // Parse errors
   warnings: ParseError[]             // Parse warnings (e.g. invalid YAML)
 }
@@ -49,7 +52,7 @@ A discriminated union for items inside a section.
 
 ```ts
 type SectionContent =
-  | { type: "step"; items: RecipeStepItem[] }
+  | { type: "step"; items: RecipeStepItem[]; number?: number }
   | { type: "text"; value: string }           // Notes (> lines)
 ```
 
@@ -63,6 +66,7 @@ type RecipeStepItem =
   | RecipeIngredient
   | RecipeCookware
   | RecipeTimer
+  | { type: "inline_quantity"; index: number }
 ```
 
 ## RecipeIngredient
@@ -100,6 +104,23 @@ interface RecipeTimer {
   name: string                 // "" if unnamed (~{qty%unit})
   quantity: number | string    // e.g. 20, "several"
   units: string                // e.g. "minutes", "hours"
+}
+```
+
+## RecipeInlineQuantity
+
+```ts
+interface RecipeInlineQuantity {
+  quantity: number | string
+  units: string
+}
+```
+
+## ParseCooklangOptions
+
+```ts
+interface ParseCooklangOptions {
+  extensions?: "canonical" | "all" // default: "canonical"
 }
 ```
 

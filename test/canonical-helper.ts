@@ -18,7 +18,14 @@ export type ExtendedStepItem =
       fixed?: true
       note?: string
     }
-  | { type: "cookware"; name: string; alias?: string; quantity: string | number; units: string; note?: string }
+  | {
+      type: "cookware"
+      name: string
+      alias?: string
+      quantity: string | number
+      units: string
+      note?: string
+    }
   | { type: "timer"; name: string; quantity: string | number; units: string }
 
 export interface CanonicalResult {
@@ -77,7 +84,7 @@ export function getSectionNames(recipe: CooklangRecipe): string[] {
 // ---------------------------------------------------------------------------
 
 export function parseToCanonical(source: string): CanonicalResult {
-  const recipe = parseCooklang(source)
+  const recipe = parseCooklang(source, { extensions: "canonical" })
 
   const metadata = sortKeys(
     Object.fromEntries(Object.entries(recipe.metadata).map(([k, v]) => [k, String(v)])),
@@ -87,18 +94,33 @@ export function parseToCanonical(source: string): CanonicalResult {
   const steps: CanonicalStepItem[][] = flatSteps.map(step =>
     step.map((item): CanonicalStepItem => {
       if (item.type === "ingredient") {
-        const result: CanonicalStepItem = { type: "ingredient", name: item.name, quantity: item.quantity, units: item.units }
+        const result: CanonicalStepItem = {
+          type: "ingredient",
+          name: item.name,
+          quantity: item.quantity,
+          units: item.units,
+        }
         if (item.alias) {
           ;(result as { alias?: string }).alias = item.alias
         }
         return result
       }
       if (item.type === "cookware") {
-        const result: CanonicalStepItem = { type: "cookware", name: item.name, quantity: item.quantity, units: item.units }
+        const result: CanonicalStepItem = {
+          type: "cookware",
+          name: item.name,
+          quantity: item.quantity,
+          units: item.units,
+        }
         if (item.alias) {
           ;(result as { alias?: string }).alias = item.alias
         }
         return result
+      }
+      if (item.type === "inline_quantity") {
+        const q = recipe.inlineQuantities[item.index]
+        if (!q) return { type: "text", value: "" }
+        return { type: "text", value: `${q.quantity}${q.units}` }
       }
       return item
     }),
@@ -108,7 +130,7 @@ export function parseToCanonical(source: string): CanonicalResult {
 }
 
 export function parseToExtendedCanonical(source: string): ExtendedCanonicalResult {
-  const recipe = parseCooklang(source)
+  const recipe = parseCooklang(source, { extensions: "canonical" })
 
   const metadata = sortKeys(
     Object.fromEntries(Object.entries(recipe.metadata).map(([k, v]) => [k, String(v)])),
@@ -149,6 +171,11 @@ export function parseToExtendedCanonical(source: string): ExtendedCanonicalResul
           ;(result as { note?: string }).note = item.note
         }
         return result
+      }
+      if (item.type === "inline_quantity") {
+        const q = recipe.inlineQuantities[item.index]
+        if (!q) return { type: "text", value: "" }
+        return { type: "text", value: `${q.quantity}${q.units}` }
       }
       return item
     }),

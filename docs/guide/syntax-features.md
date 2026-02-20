@@ -53,7 +53,7 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 | Block comment | `[- text -]` | :white_check_mark: | `[- removed section -]` |
 | **Notes** | | | |
 | Note line | `> text` | :white_check_mark: | `> Serve immediately.` |
-| Multiple notes | Multiple `>` lines | :white_check_mark: | Each parsed separately |
+| Multiple notes | Multiple `>` lines | :white_check_mark: | Folded into one text block |
 | **Text** | | | |
 | `@` in plain text | `@` not followed by word | :white_check_mark: | `Use @ symbol` |
 | `#` in plain text | `#` not followed by word | :white_check_mark: | `Item # here` |

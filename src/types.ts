@@ -12,8 +12,17 @@ export interface ParseError {
   help?: string
 }
 
+export interface ParseCooklangOptions {
+  /**
+   * Parser behavior preset:
+   * - "canonical": canonical/spec-oriented behavior (extensions off)
+   * - "all": cooklang-rs default behavior (extensions on)
+   */
+  extensions?: "canonical" | "all"
+}
+
 export type SectionContent =
-  | { type: "step"; items: RecipeStepItem[] }
+  | { type: "step"; items: RecipeStepItem[]; number?: number }
   | { type: "text"; value: string }
 
 export interface RecipeSection {
@@ -27,6 +36,7 @@ export interface CooklangRecipe {
   ingredients: RecipeIngredient[]
   cookware: RecipeCookware[]
   timers: RecipeTimer[]
+  inlineQuantities: RecipeInlineQuantity[]
   errors: ParseError[]
   warnings: ParseError[]
 }
@@ -36,6 +46,29 @@ export type RecipeStepItem =
   | RecipeIngredient
   | RecipeCookware
   | RecipeTimer
+  | { type: "inline_quantity"; index: number }
+
+export type ComponentRelation =
+  | { type: "definition"; referencedFrom: number[]; definedInStep: boolean }
+  | { type: "reference"; referencesTo: number }
+
+export type IngredientReferenceTarget = "ingredient" | "step" | "section"
+
+export interface IngredientRelation {
+  type: "definition" | "reference"
+  referencedFrom?: number[]
+  definedInStep?: boolean
+  referencesTo?: number
+  referenceTarget?: IngredientReferenceTarget
+}
+
+export interface RecipeModifiers {
+  recipe?: boolean // @
+  reference?: boolean // &
+  hidden?: boolean // -
+  optional?: boolean // ?
+  new?: boolean // +
+}
 
 export interface RecipeIngredient {
   type: "ingredient"
@@ -45,6 +78,8 @@ export interface RecipeIngredient {
   units: string
   fixed: boolean
   note?: string
+  modifiers: RecipeModifiers
+  relation: IngredientRelation
 }
 
 export interface RecipeCookware {
@@ -54,11 +89,18 @@ export interface RecipeCookware {
   quantity: number | string
   units: string
   note?: string
+  modifiers: RecipeModifiers
+  relation: ComponentRelation
 }
 
 export interface RecipeTimer {
   type: "timer"
   name: string
+  quantity: number | string
+  units: string
+}
+
+export interface RecipeInlineQuantity {
   quantity: number | string
   units: string
 }
