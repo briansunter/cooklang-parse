@@ -34,7 +34,13 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Install dependencies
+      - name: Install root dependencies
+        run: bun install
+
+      - name: Build root package
+        run: bun run build
+
+      - name: Install docs dependencies
         run: bun install
         working-directory: docs
 
