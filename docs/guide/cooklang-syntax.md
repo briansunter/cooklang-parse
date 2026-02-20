@@ -48,6 +48,18 @@ Use `|` to define a display alias (the part before `|` is the canonical name):
 Add @white wine|wine{100%ml} to deglaze.
 ```
 
+### Modifiers
+
+Modifiers are single characters placed immediately after the `@` symbol to change the ingredient's behavior. They are fully supported.
+
+| Modifier | Meaning | Example |
+| -------- | ------- | ------- |
+| `@` | Recipe reference | `@@tomato sauce{200%ml}` |
+| `&` | Reference to previous definition | `@&flour{300%g}` |
+| `?` | Optional component | `@?garnish` |
+| `+` | Force new definition | `@+extra cheese{}` |
+| `-` | Hidden component | `@-onion` |
+
 ## Cookware `#`
 
 Use `#` to mark cookware. Multi-word names need `{}` at the end.
@@ -62,6 +74,15 @@ Cookware can also have notes in parentheses:
 
 ```txt
 Heat in #pan(large).
+```
+
+### Cookware Modifiers
+
+Cookware supports the same modifiers as ingredients, placed immediately after the `#` symbol:
+
+```txt
+Use a #?blender to mix. 
+Heat another #+pan on the side.
 ```
 
 ## Timers `~`

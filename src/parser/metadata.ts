@@ -1,9 +1,6 @@
 import type { ParseError, SourcePosition } from "../types"
+import { isRecord } from "../utils"
 import type { DefineMode, DirectiveNode } from "./internal-types"
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v != null && typeof v === "object" && !Array.isArray(v)
-}
 
 /** Standard key aliases -> canonical name (from cooklang-rs StdKey::from_str). */
 const STD_KEY_ALIASES: Record<string, string> = {
@@ -21,29 +18,30 @@ const STD_KEY_ALIASES: Record<string, string> = {
   pictures: "images",
 }
 
+const STD_KEYS = new Set([
+  "title",
+  "description",
+  "tags",
+  "author",
+  "source",
+  "servings",
+  "course",
+  "time",
+  "prep_time",
+  "cook_time",
+  "difficulty",
+  "cuisine",
+  "diet",
+  "images",
+  "locale",
+])
+
 /** Resolve a metadata key to its canonical standard key name, or null if not standard. */
 function resolveStdKey(key: string): string | null {
   const lower = key.toLowerCase()
   const alias = STD_KEY_ALIASES[lower]
   if (alias) return alias
-  const stdKeys = [
-    "title",
-    "description",
-    "tags",
-    "author",
-    "source",
-    "servings",
-    "course",
-    "time",
-    "prep_time",
-    "cook_time",
-    "difficulty",
-    "cuisine",
-    "diet",
-    "images",
-    "locale",
-  ]
-  return stdKeys.includes(lower) ? lower : null
+  return STD_KEYS.has(lower) ? lower : null
 }
 
 /**

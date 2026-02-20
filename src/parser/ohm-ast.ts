@@ -1,15 +1,12 @@
 import * as Ohm from "ohm-js"
 import grammarSource from "../../grammars/cooklang.ohm" with { type: "text" }
 import type { ParseError, RecipeStepItem } from "../types"
+import { isRecord } from "../utils"
 import { buildCookware, buildIngredient } from "./component-builders"
 import type { DirectiveNode, SemanticItem, SemanticResult } from "./internal-types"
 import { parseQuantity } from "./quantity"
 import { attachRaw } from "./raw-step-items"
 import { mergeConsecutiveTexts } from "./step-processing"
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v != null && typeof v === "object" && !Array.isArray(v)
-}
 
 function isASTNode(n: unknown): n is { type: string; name: string; text: string } {
   return isRecord(n) && typeof n.type === "string"

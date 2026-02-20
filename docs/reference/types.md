@@ -12,6 +12,10 @@ import type {
   RecipeCookware,
   RecipeTimer,
   RecipeInlineQuantity,
+  RecipeModifiers,
+  IngredientRelation,
+  ComponentRelation,
+  IngredientReferenceTarget,
   ParseCooklangOptions,
   ParseError,
   SourcePosition,
@@ -80,6 +84,8 @@ interface RecipeIngredient {
   units: string                // e.g. "g", "tbsp", "" if none (only % separator)
   fixed: boolean               // true if quantity doesn't scale ({=qty})
   note?: string                // e.g. "sifted", "chopped" from (note) suffix
+  modifiers: RecipeModifiers   // e.g. @, &, -, ?, +
+  relation: IngredientRelation // Tracks definitions and component references
 }
 ```
 
@@ -93,6 +99,42 @@ interface RecipeCookware {
   quantity: number | string    // Defaults to 1
   units: string                // Always ""
   note?: string                // from #name(note) suffix
+  modifiers: RecipeModifiers   // e.g. @, &, -, ?, +
+  relation: ComponentRelation  // Tracks definitions and component references
+}
+```
+
+## RecipeModifiers
+
+Cooklang components support single-character modifiers positioned immediately after the token marker, e.g. `@@name`, `@?name`.
+
+```ts
+interface RecipeModifiers {
+  recipe?: boolean   // @ (Another recipe)
+  reference?: boolean // & (Reference to previous definition)
+  hidden?: boolean   // - (Hidden component)
+  optional?: boolean // ? (Optional component)
+  new?: boolean      // + (Force new component definition)
+}
+```
+
+## IngredientRelation & ComponentRelation
+
+Cooklang keeps track of definitions and references (`&` modifier) so that you know where an ingredient first appeared. Definitions are mapped step-by-step from their initial occurrence to each subsequent re-use reference. 
+
+```ts
+type ComponentRelation =
+  | { type: "definition"; referencedFrom: number[]; definedInStep: boolean }
+  | { type: "reference"; referencesTo: number }
+
+type IngredientReferenceTarget = "ingredient" | "step" | "section"
+
+interface IngredientRelation {
+  type: "definition" | "reference"
+  referencedFrom?: number[]
+  definedInStep?: boolean
+  referencesTo?: number
+  referenceTarget?: IngredientReferenceTarget // Currently "ingredient"
 }
 ```
 

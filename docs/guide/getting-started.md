@@ -42,11 +42,11 @@ The result contains everything extracted from the recipe:
 ```ts
 recipe.ingredients
 // [
-//   { type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false },
-//   { type: "ingredient", name: "eggs", quantity: 3, units: "", fixed: false }
+//   { type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false, modifiers: {...}, relation: {...} },
+//   { type: "ingredient", name: "eggs", quantity: 3, units: "", fixed: false, modifiers: {...}, relation: {...} }
 // ]
 
-recipe.cookware    // [{ type: "cookware", name: "pan", quantity: 1, units: "" }]
+recipe.cookware    // [{ type: "cookware", name: "pan", quantity: 1, units: "", modifiers: {...}, relation: {...} }]
 recipe.timers      // [{ type: "timer", name: "", quantity: 20, units: "minutes" }]
 ```
 
@@ -71,9 +71,9 @@ const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
 const items: RecipeStepItem[] = step.items
 // [
 //   { type: "text", value: "Mix " },
-//   { type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false },
+//   { type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false, modifiers: {...}, relation: {...} },
 //   { type: "text", value: " and " },
-//   { type: "ingredient", name: "eggs", quantity: 3, units: "", fixed: false },
+//   { type: "ingredient", name: "eggs", quantity: 3, units: "", fixed: false, modifiers: {...}, relation: {...} },
 //   { type: "text", value: "." },
 // ]
 ```

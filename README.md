@@ -39,8 +39,8 @@ Bake for ~{20%minutes}.
 `)
 
 recipe.metadata    // { servings: 4 }
-recipe.ingredients // [{ type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false }, ...]
-recipe.cookware    // [{ type: "cookware", name: "oven", quantity: 1, units: "" }, ...]
+recipe.ingredients // [{ type: "ingredient", name: "flour", quantity: 250, units: "g", fixed: false, modifiers: {...}, relation: {...} }, ...]
+recipe.cookware    // [{ type: "cookware", name: "oven", quantity: 1, units: "", modifiers: {...}, relation: {...} }, ...]
 recipe.timers      // [{ type: "timer", name: "", quantity: 20, units: "minutes" }]
 recipe.inlineQuantities // [] in canonical mode
 recipe.errors      // [] (parse errors and warnings)
@@ -54,7 +54,7 @@ const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
 step.items
 // [
 //   { type: "text", value: "Preheat " },
-//   { type: "cookware", name: "oven", quantity: 1, units: "" },
+//   { type: "cookware", name: "oven", quantity: 1, units: "", modifiers: {...}, relation: {...} },
 //   { type: "text", value: " to 180C." }
 // ]
 ```
@@ -139,6 +139,8 @@ interface RecipeIngredient {
   units: string             // only % separator: @name{qty%unit}
   fixed: boolean
   note?: string             // from @name{}(note) syntax
+  modifiers: RecipeModifiers
+  relation: IngredientRelation
 }
 
 interface RecipeCookware {
@@ -148,6 +150,8 @@ interface RecipeCookware {
   quantity: number | string
   units: string             // always ""
   note?: string             // from #name(note) syntax
+  modifiers: RecipeModifiers
+  relation: ComponentRelation
 }
 
 interface RecipeTimer {

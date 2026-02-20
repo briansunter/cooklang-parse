@@ -7,9 +7,7 @@ interface YamlParseResult {
   position?: SourcePosition
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v != null && typeof v === "object" && !Array.isArray(v)
-}
+import { isRecord } from "../utils"
 
 function computeYamlOffset(content: string, line: number, col: number): number {
   const linesAbove = content.split("\n").slice(0, line - 1)

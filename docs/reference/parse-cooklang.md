@@ -40,11 +40,11 @@ recipe.metadata     // { title: "Toast" }
 
 recipe.ingredients
 // [
-//   { type: "ingredient", name: "butter", quantity: 1, units: "tbsp", fixed: false },
-//   { type: "ingredient", name: "bread", quantity: 2, units: "slices", fixed: false }
+//   { type: "ingredient", name: "butter", quantity: 1, units: "tbsp", fixed: false, modifiers: {...}, relation: {...} },
+//   { type: "ingredient", name: "bread", quantity: 2, units: "slices", fixed: false, modifiers: {...}, relation: {...} }
 // ]
 
-recipe.cookware     // [{ type: "cookware", name: "toaster", quantity: 1, units: "" }]
+recipe.cookware     // [{ type: "cookware", name: "toaster", quantity: 1, units: "", modifiers: {...}, relation: {...} }]
 recipe.timers       // [{ type: "timer", name: "", quantity: 3, units: "minutes" }]
 recipe.inlineQuantities // [] in canonical mode
 
@@ -53,11 +53,11 @@ const step = recipe.sections[0].content[0] // { type: "step", items: [...] }
 step.items
 // [
 //   { type: "text", value: "Spread " },
-//   { type: "ingredient", name: "butter", quantity: 1, units: "tbsp", fixed: false },
+//   { type: "ingredient", name: "butter", quantity: 1, units: "tbsp", fixed: false, modifiers: {...}, relation: {...} },
 //   { type: "text", value: " on " },
-//   { type: "ingredient", name: "bread", quantity: 2, units: "slices", fixed: false },
+//   { type: "ingredient", name: "bread", quantity: 2, units: "slices", fixed: false, modifiers: {...}, relation: {...} },
 //   { type: "text", value: ". Toast in " },
-//   { type: "cookware", name: "toaster", quantity: 1, units: "" },
+//   { type: "cookware", name: "toaster", quantity: 1, units: "", modifiers: {...}, relation: {...} },
 //   { type: "text", value: " for " },
 //   { type: "timer", name: "", quantity: 3, units: "minutes" },
 //   { type: "text", value: "." },
