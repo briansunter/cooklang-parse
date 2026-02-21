@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/briansunter/cooklang-parse/compare/v1.1.2...v1.2.0) (2026-02-20)
+
+
+### Features
+
+* add directive deprecation and standard metadata type warnings ([05df151](https://github.com/briansunter/cooklang-parse/commit/05df151b450b5607c35f4c041a8420de3b097f86))
+* Add support for ingredient and cookware modifiers and component relation tracking. ([9b3ceba](https://github.com/briansunter/cooklang-parse/commit/9b3cebaad515fb43b2e16c9a37dce729c6e86272))
+
+
+### Bug Fixes
+
+* align parser with cooklang-rs reference implementation ([f78f020](https://github.com/briansunter/cooklang-parse/commit/f78f020744e1319d622e15feb82c5a566dcef9da))
+
 ## [1.1.2](https://github.com/briansunter/cooklang-parse/compare/v1.1.1...v1.1.2) (2026-02-09)
 
 
