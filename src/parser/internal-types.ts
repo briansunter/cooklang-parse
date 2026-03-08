@@ -6,6 +6,7 @@ export interface ExtensionState {
 }
 
 export type DefineMode = "all" | "components" | "steps" | "text"
+export type DuplicateMode = "new" | "reference"
 
 export interface DirectiveNode {
   type: "directive"

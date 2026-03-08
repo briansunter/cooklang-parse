@@ -794,6 +794,15 @@ test("parse extended ingredient modifier syntax", () => {
   })
   expect(recipe.ingredients[1]).toEqual({
     type: "ingredient",
+    name: "flour",
+    quantity: 300,
+    units: "g",
+    fixed: false,
+    modifiers: { reference: false },
+    relation: { type: "definition", referencedFrom: [0], definedInStep: true },
+  })
+  expect(recipe.ingredients[2]).toEqual({
+    type: "ingredient",
     name: "white wine",
     alias: "wine",
     quantity: "some",
@@ -801,15 +810,6 @@ test("parse extended ingredient modifier syntax", () => {
     fixed: false,
     modifiers: {},
     relation: { type: "definition", referencedFrom: [], definedInStep: true },
-  })
-  expect(recipe.ingredients[2]).toEqual({
-    type: "ingredient",
-    name: "flour",
-    quantity: 300,
-    units: "g",
-    fixed: false,
-    modifiers: { reference: false },
-    relation: { type: "definition", referencedFrom: [0], definedInStep: true },
   })
 })
 
@@ -1006,4 +1006,116 @@ test("braces in text do not produce false warnings", () => {
 
   expect(recipe.errors).toHaveLength(0)
   expect(recipe.warnings).toHaveLength(0)
+})
+
+test("frontmatter preserves literal marker spacing and block comment syntax", () => {
+  const source = `---
+title: Use @ example{} here
+description: Keep [- these brackets -] literally
+---
+`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+
+  expect(recipe.metadata).toEqual({
+    title: "Use @ example{} here",
+    description: "Keep [- these brackets -] literally",
+  })
+})
+
+test("note text preserves literal block comment syntax", () => {
+  const source = `> Keep [- this -] text
+`
+
+  const recipe = parseCooklang(source)
+
+  expect(getNotes(recipe)).toEqual(["Keep [- this -] text"])
+})
+
+test("inline quantity extraction only recognizes temperature units", () => {
+  const recipe = parseCooklang("Serve 2 people. HTTP 404 error. Bake at 180 C.\n", {
+    extensions: "all",
+  })
+
+  expect(recipe.inlineQuantities).toEqual([{ quantity: 180, units: "C" }])
+  expect(getSteps(recipe)[0]).toEqual([
+    { type: "text", value: "Serve 2 people. HTTP 404 error. Bake at " },
+    { type: "inline_quantity", index: 0 },
+    { type: "text", value: "." },
+  ])
+})
+
+test("duplicate reference mode creates implicit ingredient references", () => {
+  const source = `>> [duplicate]: ref
+@water{1%cup}
+@water{2%cup}
+`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+  const step = getSteps(recipe)[0]!
+
+  expect(recipe.ingredients).toHaveLength(1)
+  expect(recipe.ingredients[0]?.quantity).toBe(1)
+  expect(step[0]).toMatchObject({
+    type: "ingredient",
+    name: "water",
+    quantity: 1,
+    relation: { type: "definition" },
+  })
+  expect(step[2]).toMatchObject({
+    type: "ingredient",
+    name: "water",
+    quantity: 2,
+    modifiers: {},
+    relation: { type: "reference", referencesTo: 0, referenceTarget: "ingredient" },
+  })
+})
+
+test("duplicate new mode keeps repeated definitions distinct", () => {
+  const source = `>> [duplicate]: new
+@water{1%cup}
+@water{2%cup}
+`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+
+  expect(recipe.ingredients.map(i => i.quantity)).toEqual([1, 2])
+})
+
+test("explicit references resolve to the most recent matching definition", () => {
+  const source = `@water{1%cup}
+@water{2%cup}
+@&water{3%cup}
+`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+  const ingredientItems = getSteps(recipe)[0]!.filter(i => i.type === "ingredient")
+
+  expect(recipe.ingredients.map(i => i.quantity)).toEqual([1, 2])
+  expect(ingredientItems[2]).toMatchObject({
+    type: "ingredient",
+    quantity: 3,
+    relation: { type: "reference", referencesTo: 1, referenceTarget: "ingredient" },
+  })
+})
+
+test("text mode preserves original raw tokens after advanced unit parsing", () => {
+  const source = `>> [mode]: text
+@&flour{7 k}
+`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+
+  expect(recipe.sections[0]?.content).toEqual([{ type: "text", value: "@&flour{7 k}" }])
+})
+
+test("parse errors keep original offsets after block comments", () => {
+  const source = `[- comment -]
+=`
+  const recipe = parseCooklang(source)
+
+  expect(recipe.errors).toHaveLength(1)
+  expect(recipe.errors[0]?.position.offset).toBe(source.length)
+  expect(recipe.errors[0]?.position.line).toBe(2)
+  expect(recipe.errors[0]?.position.column).toBe(2)
 })

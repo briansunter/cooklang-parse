@@ -5,8 +5,7 @@ import { isRecord } from "../utils"
 import { buildCookware, buildIngredient } from "./component-builders"
 import type { DirectiveNode, SemanticItem, SemanticResult } from "./internal-types"
 import { parseQuantity } from "./quantity"
-import { attachRaw } from "./raw-step-items"
-import { mergeConsecutiveTexts } from "./step-processing"
+import { attachSourceInfo, createTextItem } from "./raw-step-items"
 
 function isASTNode(n: unknown): n is { type: string; name: string; text: string } {
   return isRecord(n) && typeof n.type === "string"
@@ -62,14 +61,14 @@ semantics.addOperation("toAST", {
     const flattened: RecipeStepItem[] = []
     for (let i = 0; i < lines.children.length; i += 1) {
       if (i > 0) {
-        flattened.push({ type: "text", value: " " })
+        flattened.push(createTextItem(" "))
       }
       const lineItems = lines.child(i).toAST()
       if (Array.isArray(lineItems)) {
         flattened.push(...lineItems)
       }
     }
-    return mergeConsecutiveTexts(flattened)
+    return flattened
   },
 
   StepLine(items, _inlineComment, _newline) {
@@ -77,15 +76,22 @@ semantics.addOperation("toAST", {
   },
 
   Text(self) {
-    return { type: "text", value: self.sourceString }
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo({ type: "text", value: self.sourceString }, self.sourceString, {
+      line: pos.lineNum,
+      column: pos.colNum,
+      offset: pos.offset,
+    })
   },
 
   Ingredient_multi(_at, _mods, firstWord, _spacesIter, moreWordsIter, amount, noteOpt) {
     const rawName = [firstWord, ...moreWordsIter.children].map(w => w.sourceString).join(" ")
     const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
-    return attachRaw(
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
       buildIngredient(_mods.sourceString, rawName, amount.toAST(), note),
       this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
@@ -95,9 +101,11 @@ semantics.addOperation("toAST", {
         ? amountOpt.child(0).toAST()
         : { quantity: "some", units: "", fixed: false }
     const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
-    return attachRaw(
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
       buildIngredient(_mods.sourceString, word.sourceString, amt, note),
       this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
@@ -128,18 +136,22 @@ semantics.addOperation("toAST", {
   Cookware_multi(_hash, _mods, firstWord, _spacesIter, moreWordsIter, amount, noteOpt) {
     const rawName = [firstWord, ...moreWordsIter.children].map(w => w.sourceString).join(" ")
     const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
-    return attachRaw(
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
       buildCookware(_mods.sourceString, rawName, amount.toAST().quantity, note),
       this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
   Cookware_single(_hash, _mods, word, amountOpt, noteOpt) {
     const qty = amountOpt.numChildren > 0 ? amountOpt.child(0).toAST().quantity : 1
     const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
-    return attachRaw(
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
       buildCookware(_mods.sourceString, word.sourceString, qty, note),
       this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
@@ -158,7 +170,8 @@ semantics.addOperation("toAST", {
   },
 
   Timer_withUnit(_tilde, nameOpt, _open, qty, _pct, unit, _close) {
-    return attachRaw(
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
       {
         type: "timer",
         name: nameOpt.numChildren > 0 ? nameOpt.child(0).sourceString : "",
@@ -166,11 +179,13 @@ semantics.addOperation("toAST", {
         units: unit.sourceString.trim(),
       },
       this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
   Timer_quantityOnly(_tilde, nameOpt, _open, qty, _close) {
-    return attachRaw(
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
       {
         type: "timer",
         name: nameOpt.numChildren > 0 ? nameOpt.child(0).sourceString : "",
@@ -178,11 +193,13 @@ semantics.addOperation("toAST", {
         units: "",
       },
       this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
   Timer_word(_tilde, name) {
-    return attachRaw(
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
       {
         type: "timer",
         name: name.sourceString,
@@ -190,6 +207,7 @@ semantics.addOperation("toAST", {
         units: "",
       },
       this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 

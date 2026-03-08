@@ -10,7 +10,7 @@ The parser follows a single clean pipeline:
 Source Text
     |
     v
-[1] Pre-processing (strip [- block comments -])
+[1] Pre-processing (strip step-level [- block comments -], preserve offsets)
     |
     v
 [2] Ohm Grammar (PEG parsing -> parse tree)
@@ -27,7 +27,7 @@ Source Text
     v
 [4] Manual Post-Processing (semantic AST -> CooklangRecipe)
     |- Parse YAML frontmatter, merge metadata modes/directives
-    |- Apply extension transforms (advanced units, aliases, inline quantities)
+    |- Apply step-only transforms (spaced markers, comment cleanup, advanced units, aliases, inline quantities)
     |- Run mode checks and validation warnings/errors
     |- Deduplicate ingredients, cookware, timers
 ```
@@ -128,11 +128,11 @@ Key helpers by layer:
 
 The exported `parseCooklang()` function orchestrates the full pipeline:
 
-1. **Strip block comments** -- `[- ... -]` block comments are replaced with spaces (preserving offsets)
+1. **Strip step-level block comments** -- `[- ... -]` comments inside steps are replaced with placeholder spaces so source offsets remain stable; frontmatter, notes, and directives are left untouched
 2. **Grammar match + semantic AST** -- Ohm parses source and `toAST` builds ordered semantic items
 3. **YAML front matter** -- If present, parsed with the `yaml` library
 4. **Metadata assembly** -- Frontmatter data merged with old-style directives when applicable (in canonical mode, directives only populate metadata when no frontmatter; with frontmatter they are treated as regular text lines unless they are special mode directives in `extensions: "all"`).
-5. **Step transformations** -- Extension behavior and validation passes run on step items
+5. **Step transformations** -- Step-only behavior and validation passes run on parsed step items (including spaced-marker parsing, block-comment placeholder cleanup, duplicate handling, advanced units, alias handling, and inline temperature extraction)
 6. **Section building** -- Ordered semantic items are assembled into `RecipeSection[]` with interleaved steps and notes; empty implicit sections are filtered out
 7. **Deduplication** -- Ingredients, cookware, and timers are collected and deduplicated across all sections
 8. **Return** -- A single `CooklangRecipe` object with all parsed data

@@ -1,6 +1,31 @@
-import type { ParseError, RecipeInlineQuantity, RecipeStepItem } from "../types"
-import type { DefineMode } from "./internal-types"
+import type { ParseError, RecipeInlineQuantity, RecipeStepItem, SourcePosition } from "../types"
+import type { DefineMode, DuplicateMode } from "./internal-types"
+import { parseWithOhm } from "./ohm-ast"
 import { parseQuantity } from "./quantity"
+import {
+  attachSourceInfo,
+  copyStepItemSourceInfo,
+  createTextItem,
+  getStepItemPosition,
+  sliceTextItem,
+} from "./raw-step-items"
+
+type TextStepItem = Extract<RecipeStepItem, { type: "text" }>
+type ParsedComponent = Exclude<RecipeStepItem, { type: "text" } | { type: "inline_quantity" }>
+
+const DEFAULT_POSITION: SourcePosition = { line: 1, column: 1, offset: 0 }
+
+function itemPosition(item: RecipeStepItem): SourcePosition {
+  return getStepItemPosition(item) ?? DEFAULT_POSITION
+}
+
+function offsetPosition(position: SourcePosition, charOffset: number): SourcePosition {
+  return {
+    line: position.line,
+    column: position.column + charOffset,
+    offset: position.offset + charOffset,
+  }
+}
 
 /** Merge adjacent text items into single items (e.g. across soft line breaks). */
 export function mergeConsecutiveTexts(items: RecipeStepItem[]): RecipeStepItem[] {
@@ -8,7 +33,7 @@ export function mergeConsecutiveTexts(items: RecipeStepItem[]): RecipeStepItem[]
   for (const item of items) {
     const prev = result[result.length - 1]
     if (item.type === "text" && prev?.type === "text") {
-      result[result.length - 1] = { type: "text", value: `${prev.value}${item.value}` }
+      result[result.length - 1] = createTextItem(prev.value + item.value, itemPosition(prev))
     } else {
       result.push(item)
     }
@@ -45,16 +70,24 @@ function isWhitespaceChar(ch: string): boolean {
   return ch === " " || ch === "\t" || ch === "\n" || ch === "\r"
 }
 
-function isInlineQuantityUnit(unit: string): boolean {
-  // Keep this permissive but avoid punctuation-heavy false positives.
-  return /^[°º]?[A-Za-z°º℃]+$/u.test(unit)
+function isTemperatureUnit(unit: string): boolean {
+  return /^(?:[CFK]|°C|°F|ºC|ºF|℃)$/u.test(unit)
+}
+
+function trimTrailingUnitPunctuation(rawUnit: string): { unit: string; punctuationLength: number } {
+  const trimmedUnit = rawUnit.replace(/[.,;:!?)]*$/u, "")
+  return {
+    unit: trimmedUnit,
+    punctuationLength: rawUnit.length - trimmedUnit.length,
+  }
 }
 
 function parseInlineQuantitiesInText(
-  text: string,
+  item: TextStepItem,
   inlineQuantities: RecipeInlineQuantity[],
 ): RecipeStepItem[] {
   const items: RecipeStepItem[] = []
+  const text = item.value
   let cursor = 0
   let i = 0
 
@@ -111,23 +144,31 @@ function parseInlineQuantitiesInText(
     if (!rawNumber || !rawUnit) continue
 
     const parsedNumber = Number(rawNumber)
+    const { unit: parsedUnit, punctuationLength } = trimTrailingUnitPunctuation(rawUnit)
     if (!Number.isFinite(parsedNumber)) continue
-    if (!isInlineQuantityUnit(rawUnit)) continue
+    if (!isTemperatureUnit(parsedUnit)) continue
 
     if (beforeEnd > cursor) {
-      items.push({ type: "text", value: text.slice(cursor, beforeEnd) })
+      items.push(sliceTextItem(item, cursor, beforeEnd))
     }
 
     inlineQuantities.push({
       quantity: negative ? -parsedNumber : parsedNumber,
-      units: rawUnit,
+      units: parsedUnit,
     })
-    items.push({ type: "inline_quantity", index: inlineQuantities.length - 1 })
-    cursor = i
+    const position = getStepItemPosition(item)
+    items.push(
+      attachSourceInfo(
+        { type: "inline_quantity", index: inlineQuantities.length - 1 },
+        text.slice(negative ? beforeEnd : word1Start, i - punctuationLength),
+        position ? offsetPosition(position, negative ? beforeEnd : word1Start) : undefined,
+      ),
+    )
+    cursor = i - punctuationLength
   }
 
   if (cursor < text.length) {
-    items.push({ type: "text", value: text.slice(cursor) })
+    items.push(sliceTextItem(item, cursor))
   }
 
   return items
@@ -142,11 +183,194 @@ export function applyInlineQuantityExtraction(
   const result: RecipeStepItem[] = []
   for (const item of stepItems) {
     if (item.type === "text") {
-      result.push(...parseInlineQuantitiesInText(item.value, inlineQuantities))
+      result.push(...parseInlineQuantitiesInText(item, inlineQuantities))
     } else {
       result.push(item)
     }
   }
+  return result
+}
+
+function findClosingBrace(text: string, openIndex: number): number {
+  for (let i = openIndex + 1; i < text.length; i += 1) {
+    if (text[i] === "}") return i
+  }
+  return -1
+}
+
+function parseSpacedComponentToken(
+  normalized: string,
+  raw: string,
+  position?: SourcePosition,
+): ParsedComponent | null {
+  const parsed = parseWithOhm(`${normalized}\n`)
+  if (!parsed.ok) return null
+
+  const first = parsed.value.items[0]
+  if (first?.kind !== "step" || first.items.length !== 1) return null
+
+  const token = first.items[0]
+  if (!token || token.type === "text" || token.type === "inline_quantity") return null
+
+  return attachSourceInfo(token, raw, position)
+}
+
+function parseSpacedMarkersInText(item: TextStepItem): RecipeStepItem[] {
+  const result: RecipeStepItem[] = []
+  const text = item.value
+  const basePosition = getStepItemPosition(item)
+  let cursor = 0
+
+  while (cursor < text.length) {
+    let markerIndex = -1
+    for (let i = cursor; i < text.length - 1; i += 1) {
+      const ch = text[i]
+      const next = text[i + 1]
+      if ((ch === "@" || ch === "#" || ch === "~") && (next === " " || next === "\t")) {
+        markerIndex = i
+        break
+      }
+    }
+
+    if (markerIndex === -1) {
+      result.push(sliceTextItem(item, cursor))
+      break
+    }
+
+    let tokenEnd = -1
+    let normalized = ""
+    const marker = text[markerIndex] ?? ""
+    let contentStart = markerIndex + 1
+    while (
+      contentStart < text.length &&
+      (text[contentStart] === " " || text[contentStart] === "\t")
+    ) {
+      contentStart += 1
+    }
+
+    if (marker === "~") {
+      if (text[contentStart] === "{") {
+        const closeBrace = findClosingBrace(text, contentStart)
+        if (closeBrace !== -1) {
+          tokenEnd = closeBrace + 1
+          normalized = `~${text.slice(contentStart, tokenEnd)}`
+        }
+      }
+    } else {
+      const openBrace = text.indexOf("{", contentStart)
+      if (openBrace !== -1 && text.slice(contentStart, openBrace).trim() !== "") {
+        const closeBrace = findClosingBrace(text, openBrace)
+        if (closeBrace !== -1) {
+          tokenEnd = closeBrace + 1
+          if (text[tokenEnd] === "(") {
+            const closeNote = text.indexOf(")", tokenEnd + 1)
+            if (closeNote === -1) {
+              tokenEnd = -1
+            } else {
+              tokenEnd = closeNote + 1
+            }
+          }
+
+          if (tokenEnd !== -1) {
+            normalized = `${marker}${text.slice(contentStart, tokenEnd)}`
+          }
+        }
+      }
+    }
+
+    if (tokenEnd === -1 || !normalized) {
+      result.push(sliceTextItem(item, cursor, markerIndex + 1))
+      cursor = markerIndex + 1
+      continue
+    }
+
+    const raw = text.slice(markerIndex, tokenEnd)
+    const parsed = parseSpacedComponentToken(
+      normalized,
+      raw,
+      basePosition ? offsetPosition(basePosition, markerIndex) : undefined,
+    )
+
+    if (!parsed) {
+      result.push(sliceTextItem(item, cursor, markerIndex + 1))
+      cursor = markerIndex + 1
+      continue
+    }
+
+    if (markerIndex > cursor) {
+      result.push(sliceTextItem(item, cursor, markerIndex))
+    }
+
+    result.push(parsed)
+    cursor = tokenEnd
+  }
+
+  return result
+}
+
+export function applySpacedMarkerParsing(
+  stepItems: RecipeStepItem[],
+  enabled: boolean,
+): RecipeStepItem[] {
+  if (!enabled) return stepItems
+  const result: RecipeStepItem[] = []
+  for (const item of stepItems) {
+    if (item.type === "text") {
+      result.push(...parseSpacedMarkersInText(item))
+    } else {
+      result.push(item)
+    }
+  }
+  return result
+}
+
+export function removeBlockCommentPlaceholders(
+  stepItems: RecipeStepItem[],
+  commentRanges: Array<{ start: number; end: number }>,
+): RecipeStepItem[] {
+  if (commentRanges.length === 0) return stepItems
+
+  const result: RecipeStepItem[] = []
+
+  for (const item of stepItems) {
+    if (item.type !== "text") {
+      result.push(item)
+      continue
+    }
+
+    const position = getStepItemPosition(item)
+    if (!position) {
+      result.push(item)
+      continue
+    }
+
+    const itemStart = position.offset
+    const itemEnd = itemStart + item.value.length
+    const relevantRanges = commentRanges.filter(
+      range => range.end > itemStart && range.start < itemEnd,
+    )
+
+    if (relevantRanges.length === 0) {
+      result.push(item)
+      continue
+    }
+
+    let cursor = 0
+    for (const range of relevantRanges) {
+      const sliceStart = Math.max(range.start - itemStart, 0)
+      const sliceEnd = Math.min(range.end - itemStart, item.value.length)
+
+      if (sliceStart > cursor) {
+        result.push(sliceTextItem(item, cursor, sliceStart))
+      }
+      cursor = Math.max(cursor, sliceEnd)
+    }
+
+    if (cursor < item.value.length) {
+      result.push(sliceTextItem(item, cursor))
+    }
+  }
+
   return result
 }
 
@@ -187,11 +411,11 @@ export function applyAdvancedUnits(
     if (next.quantity === item.quantity && next.units === item.units) {
       return item
     }
-    return {
+    return copyStepItemSourceInfo(item, {
       ...item,
       quantity: next.quantity,
       units: next.units,
-    }
+    })
   })
 }
 
@@ -202,20 +426,53 @@ export function applyAliasMode(
   if (aliasEnabled) return stepItems
   return stepItems.map(item => {
     if (item.type === "ingredient" && item.alias) {
-      return {
+      return copyStepItemSourceInfo(item, {
         ...item,
         name: `${item.name}|${item.alias}`,
         alias: undefined,
-      }
+      })
     }
     if (item.type === "cookware" && item.alias) {
-      return {
+      return copyStepItemSourceInfo(item, {
         ...item,
         name: `${item.name}|${item.alias}`,
         alias: undefined,
-      }
+      })
     }
     return item
+  })
+}
+
+export function applyDuplicateReferenceMode(
+  stepItems: RecipeStepItem[],
+  duplicateMode: DuplicateMode,
+  knownIngredientDefinitions: Set<string>,
+): RecipeStepItem[] {
+  return stepItems.map(item => {
+    if (item.type !== "ingredient") {
+      return item
+    }
+
+    const key = item.name.toLowerCase()
+    const shouldImplicitlyReference =
+      duplicateMode === "reference" &&
+      item.relation.type !== "reference" &&
+      !item.modifiers.new &&
+      !item.modifiers.recipe &&
+      knownIngredientDefinitions.has(key)
+
+    if (item.relation.type !== "reference" && (item.modifiers.new || !shouldImplicitlyReference)) {
+      knownIngredientDefinitions.add(key)
+    }
+
+    if (!shouldImplicitlyReference) {
+      return item
+    }
+
+    return copyStepItemSourceInfo(item, {
+      ...item,
+      relation: { type: "reference", referencesTo: -1, referenceTarget: "ingredient" },
+    })
   })
 }
 
@@ -229,7 +486,7 @@ export function splitInvalidMarkerTextItems(stepItems: RecipeStepItem[]): Recipe
     }
 
     const value = item.value
-    const segments: string[] = []
+    const ranges: Array<{ start: number; end: number }> = []
     let cursor = 0
 
     while (cursor < value.length) {
@@ -245,12 +502,12 @@ export function splitInvalidMarkerTextItems(stepItems: RecipeStepItem[]): Recipe
       }
 
       if (markerStart === -1) {
-        segments.push(value.slice(cursor))
+        ranges.push({ start: cursor, end: value.length })
         break
       }
 
       if (markerStart > cursor) {
-        segments.push(value.slice(cursor, markerStart))
+        ranges.push({ start: cursor, end: markerStart })
       }
 
       let markerEnd = value.length
@@ -261,18 +518,16 @@ export function splitInvalidMarkerTextItems(stepItems: RecipeStepItem[]): Recipe
           break
         }
       }
-      segments.push(value.slice(markerStart, markerEnd))
+      ranges.push({ start: markerStart, end: markerEnd })
       cursor = markerEnd
     }
 
-    if (segments.length <= 1) {
+    if (ranges.length <= 1) {
       out.push(item)
       continue
     }
 
-    out.push(
-      ...segments.filter(Boolean).map(segment => ({ type: "text" as const, value: segment })),
-    )
+    out.push(...ranges.map(range => sliceTextItem(item, range.start, range.end)).filter(Boolean))
   }
 
   return out
@@ -284,7 +539,7 @@ export function warnTimerMissingUnit(stepItems: RecipeStepItem[], warnings: Pars
     if (item.units !== "" || item.quantity === "") continue
     warnings.push({
       message: "Invalid timer quantity: missing unit",
-      position: { line: 1, column: 1, offset: 0 },
+      position: itemPosition(item),
       severity: "warning",
       help: "A timer needs a unit to know the duration",
     })
@@ -299,7 +554,7 @@ export function warnUnnecessaryScalingLock(
     if (item.type !== "ingredient" || !item.fixed) continue
     warnings.push({
       message: "Unnecessary scaling lock modifier",
-      position: { line: 1, column: 1, offset: 0 },
+      position: itemPosition(item),
       severity: "warning",
     })
   }
@@ -315,22 +570,22 @@ export function checkStepsModeReferences(
   for (const item of stepItems) {
     if (item.type === "ingredient") {
       const key = item.name.toLowerCase()
-      if (defineMode === "steps" && !knownIngredients.has(key)) {
+      if (defineMode === "steps" && !item.modifiers.new && !knownIngredients.has(key)) {
         errors.push({
           message: `Reference not found: ${item.name}`,
           shortMessage: `Reference not found: ${item.name}`,
-          position: { line: 1, column: 1, offset: 0 },
+          position: itemPosition(item),
           severity: "error",
         })
       }
       knownIngredients.add(key)
     } else if (item.type === "cookware") {
       const key = item.name.toLowerCase()
-      if (defineMode === "steps" && !knownCookware.has(key)) {
+      if (defineMode === "steps" && !item.modifiers.new && !knownCookware.has(key)) {
         errors.push({
           message: `Reference not found: ${item.name}`,
           shortMessage: `Reference not found: ${item.name}`,
-          position: { line: 1, column: 1, offset: 0 },
+          position: itemPosition(item),
           severity: "error",
         })
       }

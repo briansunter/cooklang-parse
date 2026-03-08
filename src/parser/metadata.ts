@@ -1,6 +1,6 @@
 import type { ParseError, SourcePosition } from "../types"
 import { isRecord } from "../utils"
-import type { DefineMode, DirectiveNode } from "./internal-types"
+import type { DefineMode, DirectiveNode, DuplicateMode } from "./internal-types"
 
 /** Standard key aliases -> canonical name (from cooklang-rs StdKey::from_str). */
 const STD_KEY_ALIASES: Record<string, string> = {
@@ -154,6 +154,21 @@ export function applyDirectiveMode(current: DefineMode, key: string, rawValue: s
   if (value === "components" || value === "ingredients") return "components"
   if (value === "steps") return "steps"
   if (value === "text") return "text"
+  return current
+}
+
+export function applyDuplicateMode(
+  current: DuplicateMode,
+  key: string,
+  rawValue: string,
+): DuplicateMode {
+  if (key.toLowerCase() !== "[duplicate]") {
+    return current
+  }
+
+  const value = rawValue.toLowerCase()
+  if (value === "new" || value === "define") return "new"
+  if (value === "reference" || value === "ref") return "reference"
   return current
 }
 
