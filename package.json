@@ -1,6 +1,6 @@
 {
   "name": "cooklang-parse",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A simple, type-safe Cooklang parser built with Ohm.js",
   "type": "module",
   "module": "dist/index.js",
