@@ -35,7 +35,7 @@ Cooklang {
     = ~(hspace* "-- ") ~(hspace* newline) ~sectionStart ~MetadataDirective StepItem+ InlineComment? "\n"?
 
   sectionStart
-    = "==" | "=" ~"=" ~"@"
+    = "==" | "=" ~"="
 
   // Items that can appear in a step
   StepItem
@@ -115,7 +115,7 @@ Cooklang {
     = ">" noteText Newline?
 
   noteText
-    = (~"\n" ~"\r" ~">" any)+
+    = (~"\n" ~"\r" any)+
 
   // Metadata directive: >> key: value
   MetadataDirective

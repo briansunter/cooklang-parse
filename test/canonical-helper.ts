@@ -129,6 +129,26 @@ export function parseToCanonical(source: string): CanonicalResult {
   return { metadata, steps }
 }
 
+/**
+ * Normalize expected results: ensure cookware items always have `units` field.
+ * Some older Rust fixtures omit `units` on cookware; newer ones include it.
+ */
+export function normalizeExpectedResult<T extends CanonicalResult | ExtendedCanonicalResult>(
+  result: T,
+): T {
+  return {
+    ...result,
+    steps: result.steps.map(step =>
+      step.map(item => {
+        if (item.type === "cookware") {
+          return { ...item, units: item.units || "" }
+        }
+        return item
+      }),
+    ),
+  } as T
+}
+
 export function parseToExtendedCanonical(source: string): ExtendedCanonicalResult {
   const recipe = parseCooklang(source, { extensions: "canonical" })
 

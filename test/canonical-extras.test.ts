@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { type ExtendedCanonicalResult, parseToExtendedCanonical } from "./canonical-helper"
+import {
+  type ExtendedCanonicalResult,
+  normalizeExpectedResult,
+  parseToExtendedCanonical,
+} from "./canonical-helper"
 
 interface ExtendedCase {
   source: string
@@ -11,23 +15,6 @@ interface ExtendedCase {
 interface ExtendedYaml {
   version: number
   tests: Record<string, ExtendedCase>
-}
-
-/**
- * Normalize expected results: ensure cookware items always have `units` field.
- */
-function normalizeExpectedResult(result: ExtendedCanonicalResult): ExtendedCanonicalResult {
-  return {
-    ...result,
-    steps: result.steps.map(step =>
-      step.map(item => {
-        if (item.type === "cookware") {
-          return { ...item, units: item.units || "" }
-        }
-        return item
-      }),
-    ),
-  }
 }
 
 function loadExtendedCases(): Array<[string, ExtendedCase]> {

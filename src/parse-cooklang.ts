@@ -19,6 +19,7 @@ import {
   applySpacedMarkerParsing,
   checkStepsModeReferences,
   collectUniqueFromSteps,
+  DEFAULT_POSITION,
   mergeConsecutiveTexts,
   removeBlockCommentPlaceholders,
   splitInvalidMarkerTextItems,
@@ -34,7 +35,6 @@ import type {
   RecipeInlineQuantity,
   RecipeSection,
   RecipeStepItem,
-  RecipeTimer,
 } from "./types"
 
 function emptyRecipe(errors: ParseError[], warnings: ParseError[] = []): CooklangRecipe {
@@ -64,7 +64,20 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
 
   const result = parsed.value
 
-  const yamlStartOffset = result.frontmatter ? source.indexOf("---") + 4 : 0
+  const yamlStartOffset = result.frontmatter
+    ? (() => {
+        const idx = withoutBlockComments.indexOf("---")
+        const afterDashes = idx + 3
+        // Skip past the newline after ---
+        if (
+          withoutBlockComments[afterDashes] === "\r" &&
+          withoutBlockComments[afterDashes + 1] === "\n"
+        )
+          return afterDashes + 2
+        if (withoutBlockComments[afterDashes] === "\n") return afterDashes + 1
+        return afterDashes
+      })()
+    : 0
   const yaml = result.frontmatter ? parseYamlFrontmatter(result.frontmatter, yamlStartOffset) : null
 
   const warnings: ParseError[] = []
@@ -73,7 +86,7 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
   if (yaml?.warning) {
     warnings.push({
       message: yaml.warning,
-      position: yaml.position ?? { line: 1, column: 1, offset: 0 },
+      position: yaml.position ?? DEFAULT_POSITION,
       severity: "warning",
     })
   }
@@ -153,7 +166,7 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
       continue
     }
 
-    let stepItems = applySpacedMarkerParsing(item.items, true)
+    let stepItems = applySpacedMarkerParsing(item.items)
     stepItems = removeBlockCommentPlaceholders(stepItems, preprocessed.commentRanges)
     stepItems = applyAdvancedUnits(stepItems, allExtensions)
     stepItems = applyAliasMode(stepItems, allExtensions)
@@ -166,19 +179,13 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
         stepItem => stepItem.type === "timer" && stepItem.quantity === "" && stepItem.units === "",
       )
       if (invalidTimer) {
-        return emptyRecipe(
-          [
-            {
-              message: "Invalid timer: missing quantity",
-              shortMessage: "Invalid timer: missing quantity",
-              position: invalidTimer
-                ? (getStepItemPosition(invalidTimer) ?? { line: 1, column: 1, offset: 0 })
-                : { line: 1, column: 1, offset: 0 },
-              severity: "error",
-            },
-          ],
-          warnings,
-        )
+        errors.push({
+          message: "Invalid timer: missing quantity",
+          shortMessage: "Invalid timer: missing quantity",
+          position: getStepItemPosition(invalidTimer) ?? DEFAULT_POSITION,
+          severity: "error",
+        })
+        // Continue processing — don't abort the entire recipe
       }
     }
 
@@ -203,7 +210,7 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
           ) {
             warnings.push({
               message: `Ignoring ${stepItem.type} in text mode`,
-              position: getStepItemPosition(stepItem) ?? { line: 1, column: 1, offset: 0 },
+              position: getStepItemPosition(stepItem) ?? DEFAULT_POSITION,
               severity: "warning",
             })
             return serializeStepItemRaw(stepItem)
@@ -277,6 +284,9 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     }
   }
 
+  // Note: relation fields are mutated in-place on step items that are shared
+  // between sections[].content[].items and the top-level ingredients/cookware arrays.
+  // This is intentional — both references point to the same object.
   let globalStepIndex = 0
   for (const section of sections) {
     for (const content of section.content) {
@@ -369,7 +379,7 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     sections,
     ingredients,
     cookware,
-    timers: collectUniqueFromSteps<RecipeTimer>(allStepsForComponents, "timer", keyFn),
+    timers: collectUniqueFromSteps(allStepsForComponents, "timer", keyFn),
     inlineQuantities,
     errors,
     warnings,

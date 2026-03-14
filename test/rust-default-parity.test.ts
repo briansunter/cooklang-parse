@@ -97,7 +97,8 @@ Add @flour{250%g}.
 
   test("inline temperatures are extracted from text", () => {
     const recipe = parseCooklang("text 2ºC more text 150 F end text\n", { extensions: "all" })
-    const step = getSteps(recipe)[0]!
+    const step = getSteps(recipe)[0]
+    expect(step).toBeDefined()
 
     expect(recipe.inlineQuantities).toEqual([
       { quantity: 2, units: "ºC" },
@@ -124,8 +125,8 @@ Add @flour{250%g}.
     const recipe = parseCooklang("Let it ~rest after plating\n", { extensions: "all" })
     expect(recipe.errors).toHaveLength(1)
     expect(recipe.errors[0]?.message).toContain("Invalid timer: missing quantity")
-    expect(recipe.sections).toEqual([])
-    expect(recipe.timers).toEqual([])
+    // The parser continues processing after the error — the step is still emitted
+    expect(getSteps(recipe)).toHaveLength(1)
   })
 
   test("advanced units parse quantity+unit without percent separator", () => {

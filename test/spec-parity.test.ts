@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { parseCooklang } from "../src/index"
-import { getSectionNames, getSteps } from "./canonical-helper"
+import { getSectionNames, getSteps, parseToCanonical } from "./canonical-helper"
 
 test("spec parity: comment-only recipe is empty", () => {
   const source = `-- "empty" recipe
@@ -146,7 +146,6 @@ test("spec parity: fixed quantity inside braces", () => {
 })
 
 test("spec parity: canonical format for fixed quantity", () => {
-  const { parseToCanonical } = require("./canonical-helper")
   const result = parseToCanonical("Add @salt{=1%tsp} to taste.\n")
 
   expect(result.steps[0]).toEqual([
@@ -234,8 +233,10 @@ describe("cooklang-rs parity", () => {
 
   test("inline block comment produces minimal whitespace", () => {
     const recipe = parseCooklang("Add @flour{} [- comment -] and mix\n")
-    const step = getSteps(recipe)[0]!
-    const texts = step.filter(i => i.type === "text").map(i => (i as { value: string }).value)
+    const step = getSteps(recipe)[0]
+    expect(step).toBeDefined()
+    const texts =
+      step?.filter(i => i.type === "text").map(i => (i as { value: string }).value) ?? []
     // After stripping [- comment -] (15 chars) → empty string, so grammar sees "Add  and mix"
     // The text after the ingredient should be " " + " and mix" = "  and mix" (2 spaces)
     expect(texts.some(t => t.includes("  and mix"))).toBe(true)

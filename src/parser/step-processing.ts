@@ -7,24 +7,17 @@ import {
   copyStepItemSourceInfo,
   createTextItem,
   getStepItemPosition,
+  offsetPosition,
   sliceTextItem,
 } from "./raw-step-items"
 
 type TextStepItem = Extract<RecipeStepItem, { type: "text" }>
 type ParsedComponent = Exclude<RecipeStepItem, { type: "text" } | { type: "inline_quantity" }>
 
-const DEFAULT_POSITION: SourcePosition = { line: 1, column: 1, offset: 0 }
+export const DEFAULT_POSITION: SourcePosition = { line: 1, column: 1, offset: 0 }
 
 function itemPosition(item: RecipeStepItem): SourcePosition {
   return getStepItemPosition(item) ?? DEFAULT_POSITION
-}
-
-function offsetPosition(position: SourcePosition, charOffset: number): SourcePosition {
-  return {
-    line: position.line,
-    column: position.column + charOffset,
-    offset: position.offset + charOffset,
-  }
 }
 
 /** Merge adjacent text items into single items (e.g. across soft line breaks). */
@@ -42,20 +35,20 @@ export function mergeConsecutiveTexts(items: RecipeStepItem[]): RecipeStepItem[]
 }
 
 /** Collect unique items of a given type across parsed step items. */
-export function collectUniqueFromSteps<T extends RecipeStepItem>(
+export function collectUniqueFromSteps<K extends RecipeStepItem["type"]>(
   allSteps: RecipeStepItem[][],
-  type: RecipeStepItem["type"],
-  key: (item: T) => string,
-): T[] {
+  type: K,
+  key: (item: Extract<RecipeStepItem, { type: K }>) => string,
+): Extract<RecipeStepItem, { type: K }>[] {
   const seen = new Set<string>()
-  const result: T[] = []
+  const result: Extract<RecipeStepItem, { type: K }>[] = []
   for (const step of allSteps) {
     for (const item of step) {
       if (item.type !== type) continue
-      const k = key(item as T)
+      const k = key(item as Extract<RecipeStepItem, { type: K }>)
       if (!seen.has(k)) {
         seen.add(k)
-        result.push(item as T)
+        result.push(item as Extract<RecipeStepItem, { type: K }>)
       }
     }
   }
@@ -308,11 +301,7 @@ function parseSpacedMarkersInText(item: TextStepItem): RecipeStepItem[] {
   return result
 }
 
-export function applySpacedMarkerParsing(
-  stepItems: RecipeStepItem[],
-  enabled: boolean,
-): RecipeStepItem[] {
-  if (!enabled) return stepItems
+export function applySpacedMarkerParsing(stepItems: RecipeStepItem[]): RecipeStepItem[] {
   const result: RecipeStepItem[] = []
   for (const item of stepItems) {
     if (item.type === "text") {

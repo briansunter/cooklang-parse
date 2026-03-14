@@ -49,7 +49,5 @@ jobs:
         timeout-minutes: 1
 
       - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ steps.bws.outputs.NPM_TOKEN }}
+        run: bun publish --access public
         timeout-minutes: 5

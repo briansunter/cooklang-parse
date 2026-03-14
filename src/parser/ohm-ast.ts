@@ -11,6 +11,16 @@ function isASTNode(n: unknown): n is { type: string; name: string; text: string 
   return isRecord(n) && typeof n.type === "string"
 }
 
+function isDirectiveNode(node: unknown): node is DirectiveNode {
+  return (
+    isRecord(node) &&
+    node.type === "directive" &&
+    typeof node.key === "string" &&
+    typeof node.rawValue === "string" &&
+    typeof node.rawLine === "string"
+  )
+}
+
 const grammar = Ohm.grammar(grammarSource)
 const semantics = grammar.createSemantics()
 
@@ -24,15 +34,15 @@ semantics.addOperation("toAST", {
     if (!frontmatter) {
       for (const child of leading.children) {
         const result = child.toAST()
-        if (isRecord(result) && result.type === "directive") {
-          orderedItems.push({ kind: "directive", directive: result as unknown as DirectiveNode })
+        if (isDirectiveNode(result)) {
+          orderedItems.push({ kind: "directive", directive: result })
         }
       }
     }
 
     for (const node of items.children.map(c => c.toAST()).filter(Boolean)) {
-      if (isRecord(node) && node.type === "directive") {
-        orderedItems.push({ kind: "directive", directive: node as unknown as DirectiveNode })
+      if (isDirectiveNode(node)) {
+        orderedItems.push({ kind: "directive", directive: node })
       } else if (Array.isArray(node) && node.length > 0) {
         orderedItems.push({ kind: "step", items: node })
       } else if (isASTNode(node) && node.type === "section") {
@@ -161,7 +171,7 @@ semantics.addOperation("toAST", {
 
   cookwareAmount_withQuantity(_open, qty, _close) {
     const raw = qty.sourceString.trim()
-    const n = Number.parseFloat(raw)
+    const n = Number(raw)
     return { quantity: Number.isNaN(n) ? raw : n }
   },
 
@@ -218,10 +228,14 @@ semantics.addOperation("toAST", {
   MetadataDirective(_hspace, _arrows, body, _newline) {
     const directive = body.toAST()
     if (isRecord(directive) && directive.type === "directive") {
-      return {
-        ...(directive as unknown as DirectiveNode),
+      const node = {
+        type: directive.type as "directive",
+        key: directive.key as string,
+        rawValue: directive.rawValue as string,
+        position: directive.position as { line: number; column: number; offset: number },
         rawLine: this.sourceString.trimEnd(),
       }
+      return node
     }
     return directive
   },

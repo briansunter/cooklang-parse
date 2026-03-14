@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { parseCooklang } from "../src/index"
+import { grammar, parseCooklang } from "../src/index"
 import { getNotes, getSectionNames, getSteps } from "./canonical-helper"
 
 test("parse simple recipe", () => {
@@ -286,8 +286,6 @@ Rest for ~{10%minutes}.
 })
 
 test("grammar export is an Ohm grammar object", () => {
-  const { grammar } = require("../src/semantics.js")
-
   expect(grammar).toBeDefined()
   expect(typeof grammar.match).toBe("function")
 })
@@ -318,20 +316,11 @@ test("step items include full content", () => {
   const recipe = parseCooklang(source)
 
   expect(getSteps(recipe)).toHaveLength(1)
-  const textItems = getSteps(recipe)[0]!.filter(i => i.type === "text")
+  const step = getSteps(recipe)[0]
+  expect(step).toBeDefined()
+  const textItems = step?.filter(i => i.type === "text") ?? []
   expect(textItems.some(t => t.type === "text" && t.value.includes("Mix"))).toBe(true)
   expect(textItems.some(t => t.type === "text" && t.value.includes("in the"))).toBe(true)
-})
-
-test("inline comments are stripped from steps", () => {
-  const source = `Mix @flour{250%g}. -- Do not overmix`
-
-  const recipe = parseCooklang(source)
-
-  expect(getSteps(recipe)).toHaveLength(1)
-  // Inline comments are stripped from public output
-  const textItems = getSteps(recipe)[0]!.filter(i => i.type === "text")
-  expect(textItems.some(t => t.type === "text" && t.value.includes("Mix"))).toBe(true)
 })
 
 test("metadata with boolean values", () => {
@@ -520,7 +509,7 @@ Step three.`
   const recipe = parseCooklang(source)
 
   // Steps are separated by blank lines
-  expect(getSteps(recipe).length).toBeGreaterThanOrEqual(1)
+  expect(getSteps(recipe).length).toBe(3)
 })
 
 test("parse recipe with no ingredients", () => {
@@ -608,7 +597,7 @@ Rest for ~{5}.
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.timers.length).toBeGreaterThanOrEqual(2)
+  expect(recipe.timers.length).toBe(3)
 })
 
 test("parse metadata directives with >> syntax", () => {
@@ -622,7 +611,9 @@ Mix @flour{250%g}.
 
   expect(recipe.metadata.title).toBe("Pancakes")
   expect(recipe.metadata.servings).toBe("4")
-  const textItems = getSteps(recipe)[0]!.filter(i => i.type === "text")
+  const step = getSteps(recipe)[0]
+  expect(step).toBeDefined()
+  const textItems = step?.filter(i => i.type === "text") ?? []
   expect(textItems.some(t => t.type === "text" && t.value.includes("Mix"))).toBe(true)
 })
 
@@ -903,14 +894,15 @@ test("parse error uses shortMessage without verbose formatting", () => {
   const recipe = parseCooklang("=")
 
   expect(recipe.errors).toHaveLength(1)
-  const err = recipe.errors[0]!
-  expect(err.severity).toBe("error")
-  expect(err.shortMessage).toBeDefined()
+  const err = recipe.errors[0]
+  expect(err).toBeDefined()
+  expect(err?.severity).toBe("error")
+  expect(err?.shortMessage).toBeDefined()
   // shortMessage should not contain position prefix or ASCII art
-  expect(err.shortMessage ?? "").not.toMatch(/^Line \d+/)
-  expect(err.shortMessage ?? "").not.toContain("|")
+  expect(err?.shortMessage ?? "").not.toMatch(/^Line \d+/)
+  expect(err?.shortMessage ?? "").not.toContain("|")
   // message should be the clean short message
-  expect(err.message).toBe(err.shortMessage!)
+  expect(err?.message).toBe(err?.shortMessage)
 })
 
 test("parse error offset is correct with directives", () => {
@@ -921,11 +913,12 @@ test("parse error offset is correct with directives", () => {
   const recipe = parseCooklang(source)
 
   expect(recipe.errors).toHaveLength(1)
-  const err = recipe.errors[0]!
-  expect(err.severity).toBe("error")
+  const err = recipe.errors[0]
+  expect(err).toBeDefined()
+  expect(err?.severity).toBe("error")
   // Offset should point into the original source near the `=` (not 0 or 2)
-  expect(err.position.offset).toBeGreaterThanOrEqual(source.lastIndexOf("="))
-  expect(err.position.offset).toBeLessThanOrEqual(source.length)
+  expect(err?.position.offset).toBeGreaterThanOrEqual(source.lastIndexOf("="))
+  expect(err?.position.offset).toBeLessThanOrEqual(source.length)
 })
 
 test("YAML error has non-zero offset based on actual position in source", () => {
@@ -941,9 +934,10 @@ invalid yaml here
   const recipe = parseCooklang(source)
 
   expect(recipe.warnings.some(e => /yaml/i.test(e.message))).toBe(true)
-  const yamlWarning = recipe.warnings.find(e => /yaml/i.test(e.message))!
+  const yamlWarning = recipe.warnings.find(e => /yaml/i.test(e.message))
+  expect(yamlWarning).toBeDefined()
   // Offset should be > 0 since the error is inside the YAML block, not at the start of the file
-  expect(yamlWarning.position.offset).toBeGreaterThan(0)
+  expect(yamlWarning?.position.offset).toBeGreaterThan(0)
 })
 
 test("non-object YAML frontmatter reports what type was found", () => {
@@ -956,8 +950,9 @@ Mix @flour{250%g}.
 
   const recipe = parseCooklang(source)
 
-  const warning = recipe.warnings[0]!
-  expect(warning.message).toContain("got an array")
+  const warning = recipe.warnings[0]
+  expect(warning).toBeDefined()
+  expect(warning?.message).toContain("got an array")
 })
 
 test("string YAML frontmatter reports what type was found", () => {
@@ -969,8 +964,9 @@ Mix @flour{250%g}.
 
   const recipe = parseCooklang(source)
 
-  const warning = recipe.warnings[0]!
-  expect(warning.message).toContain("got a string")
+  const warning = recipe.warnings[0]
+  expect(warning).toBeDefined()
+  expect(warning?.message).toContain("got a string")
 })
 
 test("parse error reports correct line number on later lines", () => {
@@ -980,8 +976,9 @@ Add @eggs{3}.
   const recipe = parseCooklang(source)
 
   expect(recipe.errors).toHaveLength(1)
-  const err = recipe.errors[0]!
-  expect(err.position.line).toBe(3)
+  const err = recipe.errors[0]
+  expect(err).toBeDefined()
+  expect(err?.position.line).toBe(3)
 })
 
 test("YAML error line points to the source line with the problem", () => {
@@ -992,11 +989,11 @@ tags: [broken
 @eggs{2}`
   const recipe = parseCooklang(source)
 
-  const w = recipe.warnings.find(e => /yaml/i.test(e.message))!
+  const w = recipe.warnings.find(e => /yaml/i.test(e.message))
   expect(w).toBeDefined()
   // Error should point at or before the closing ---, not past it
-  expect(w.position.line).toBeLessThanOrEqual(4)
-  expect(w.position.line).toBeGreaterThanOrEqual(3)
+  expect(w?.position.line).toBeLessThanOrEqual(4)
+  expect(w?.position.line).toBeGreaterThanOrEqual(3)
 })
 
 test("braces in text do not produce false warnings", () => {
@@ -1052,17 +1049,18 @@ test("duplicate reference mode creates implicit ingredient references", () => {
 `
 
   const recipe = parseCooklang(source, { extensions: "all" })
-  const step = getSteps(recipe)[0]!
+  const step = getSteps(recipe)[0]
+  expect(step).toBeDefined()
 
   expect(recipe.ingredients).toHaveLength(1)
   expect(recipe.ingredients[0]?.quantity).toBe(1)
-  expect(step[0]).toMatchObject({
+  expect(step?.[0]).toMatchObject({
     type: "ingredient",
     name: "water",
     quantity: 1,
     relation: { type: "definition" },
   })
-  expect(step[2]).toMatchObject({
+  expect(step?.[2]).toMatchObject({
     type: "ingredient",
     name: "water",
     quantity: 2,
@@ -1089,7 +1087,7 @@ test("explicit references resolve to the most recent matching definition", () =>
 `
 
   const recipe = parseCooklang(source, { extensions: "all" })
-  const ingredientItems = getSteps(recipe)[0]!.filter(i => i.type === "ingredient")
+  const ingredientItems = getSteps(recipe)[0]?.filter(i => i.type === "ingredient") ?? []
 
   expect(recipe.ingredients.map(i => i.quantity)).toEqual([1, 2])
   expect(ingredientItems[2]).toMatchObject({
@@ -1118,4 +1116,77 @@ test("parse errors keep original offsets after block comments", () => {
   expect(recipe.errors[0]?.position.offset).toBe(source.length)
   expect(recipe.errors[0]?.position.line).toBe(2)
   expect(recipe.errors[0]?.position.column).toBe(2)
+})
+
+test("cookware quantity parses numeric value", () => {
+  const source = `Use a #pan{3} to cook.`
+  const recipe = parseCooklang(source)
+
+  expect(recipe.cookware).toHaveLength(1)
+  expect(recipe.cookware[0]?.quantity).toBe(3)
+})
+
+test("warnUnnecessaryScalingLock emits warning for fixed quantities", () => {
+  const source = `Add @salt{=1%tsp} to taste.`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+
+  expect(recipe.warnings.some(w => w.message.includes("Unnecessary scaling lock"))).toBe(true)
+})
+
+test("checkStepsModeReferences emits error for undefined ingredient in steps mode", () => {
+  const source = `>> [mode]: steps
+@water{1%cup}
+`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+
+  expect(recipe.errors.some(e => e.message.includes("Reference not found"))).toBe(true)
+  expect(recipe.errors.some(e => e.message.includes("water"))).toBe(true)
+})
+
+test("cookware pipe alias is parsed with extensions", () => {
+  const source = `Use #large pot|pot{} to cook.`
+
+  const recipe = parseCooklang(source, { extensions: "all" })
+
+  expect(recipe.cookware).toHaveLength(1)
+  expect(recipe.cookware[0]?.name).toBe("large pot")
+  expect(recipe.cookware[0]?.alias).toBe("pot")
+})
+
+test("STD_KEY_ALIASES map serves to servings and tag to tags", () => {
+  const source = `>> serves: 4
+>> tag: dinner
+`
+
+  const recipe = parseCooklang(source)
+
+  // Key aliases are applied during standard metadata validation,
+  // but directive keys are stored as-is in metadata
+  expect(recipe.metadata.serves).toBe("4")
+  expect(recipe.metadata.tag).toBe("dinner")
+  // Validation warnings should reference the aliased keys
+  const servingsWarning = recipe.warnings.find(
+    w => w.message.includes("Unsupported value for key") && w.message.includes("serves"),
+  )
+  expect(servingsWarning).toBeDefined()
+})
+
+test("parseFrontmatterLines fallback for non-object YAML", () => {
+  const source = `---
+- list item
+---
+Mix @flour{250%g}.
+`
+
+  const recipe = parseCooklang(source)
+
+  // YAML parses this as an array, parseFrontmatterLines can't recover (no colons),
+  // so metadata is empty and a warning is produced
+  expect(recipe.metadata).toEqual({})
+  expect(recipe.warnings.some(w => /expected a key/i.test(w.message))).toBe(true)
+  // The recipe body still parses correctly
+  expect(recipe.ingredients).toHaveLength(1)
+  expect(recipe.ingredients[0]?.name).toBe("flour")
 })

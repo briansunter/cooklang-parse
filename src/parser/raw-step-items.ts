@@ -1,9 +1,9 @@
 import type { RecipeStepItem, SourcePosition } from "../types"
 
-const rawStepItemMap = new WeakMap<object, string>()
-const stepItemPositionMap = new WeakMap<object, SourcePosition>()
+const rawStepItemMap = new WeakMap<RecipeStepItem, string>()
+const stepItemPositionMap = new WeakMap<RecipeStepItem, SourcePosition>()
 
-function offsetPosition(position: SourcePosition, charOffset: number): SourcePosition {
+export function offsetPosition(position: SourcePosition, charOffset: number): SourcePosition {
   return {
     line: position.line,
     column: position.column + charOffset,
@@ -16,15 +16,15 @@ export function attachSourceInfo<T extends RecipeStepItem>(
   raw: string,
   position?: SourcePosition,
 ): T {
-  rawStepItemMap.set(item as unknown as object, raw)
+  rawStepItemMap.set(item, raw)
   if (position) {
-    stepItemPositionMap.set(item as unknown as object, position)
+    stepItemPositionMap.set(item, position)
   }
   return item
 }
 
 export function getStepItemPosition(item: RecipeStepItem): SourcePosition | undefined {
-  return stepItemPositionMap.get(item as unknown as object)
+  return stepItemPositionMap.get(item)
 }
 
 export function copyStepItemSourceInfo<T extends RecipeStepItem>(
@@ -32,14 +32,14 @@ export function copyStepItemSourceInfo<T extends RecipeStepItem>(
   to: T,
   overrides: { raw?: string; position?: SourcePosition } = {},
 ): T {
-  const raw = overrides.raw ?? rawStepItemMap.get(from as unknown as object)
-  const position = overrides.position ?? stepItemPositionMap.get(from as unknown as object)
+  const raw = overrides.raw ?? rawStepItemMap.get(from)
+  const position = overrides.position ?? stepItemPositionMap.get(from)
 
   if (typeof raw === "string") {
-    rawStepItemMap.set(to as unknown as object, raw)
+    rawStepItemMap.set(to, raw)
   }
   if (position) {
-    stepItemPositionMap.set(to as unknown as object, position)
+    stepItemPositionMap.set(to, position)
   }
   return to
 }
@@ -74,7 +74,7 @@ function cookwareModifierPrefix(item: Extract<RecipeStepItem, { type: "cookware"
 }
 
 export function serializeStepItemRaw(item: RecipeStepItem): string {
-  const raw = rawStepItemMap.get(item as unknown as object)
+  const raw = rawStepItemMap.get(item)
   if (typeof raw === "string") {
     return raw
   }

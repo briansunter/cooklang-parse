@@ -22,7 +22,7 @@ export interface ParseCooklangOptions {
 }
 
 export type SectionContent =
-  | { type: "step"; items: RecipeStepItem[]; number?: number }
+  | { type: "step"; items: RecipeStepItem[]; number: number }
   | { type: "text"; value: string }
 
 export interface RecipeSection {
@@ -54,13 +54,9 @@ export type ComponentRelation =
 
 export type IngredientReferenceTarget = "ingredient" | "step" | "section"
 
-export interface IngredientRelation {
-  type: "definition" | "reference"
-  referencedFrom?: number[]
-  definedInStep?: boolean
-  referencesTo?: number
-  referenceTarget?: IngredientReferenceTarget
-}
+export type IngredientRelation =
+  | { type: "definition"; referencedFrom: number[]; definedInStep: boolean }
+  | { type: "reference"; referencesTo: number; referenceTarget?: IngredientReferenceTarget }
 
 export interface RecipeModifiers {
   recipe?: boolean // @

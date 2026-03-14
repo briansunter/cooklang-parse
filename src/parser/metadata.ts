@@ -1,6 +1,7 @@
 import type { ParseError, SourcePosition } from "../types"
 import { isRecord } from "../utils"
 import type { DefineMode, DirectiveNode, DuplicateMode } from "./internal-types"
+import { DEFAULT_POSITION } from "./step-processing"
 
 /** Standard key aliases -> canonical name (from cooklang-rs StdKey::from_str). */
 const STD_KEY_ALIASES: Record<string, string> = {
@@ -127,7 +128,7 @@ export function checkStandardMetadata(
 
     const err = checkStdEntry(stdKey, value)
     if (err) {
-      const position = directivePositions.get(key) ?? { line: 1, column: 1, offset: 0 }
+      const position = directivePositions.get(key) ?? DEFAULT_POSITION
       warnings.push({
         message: `Unsupported value for key: '${key}'`,
         position,

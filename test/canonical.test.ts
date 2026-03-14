@@ -1,29 +1,11 @@
 import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { type CanonicalResult, parseToCanonical } from "./canonical-helper"
+import { type CanonicalResult, normalizeExpectedResult, parseToCanonical } from "./canonical-helper"
 
 interface CanonicalCase {
   source: string
   result: CanonicalResult
-}
-
-/**
- * Normalize expected results: ensure cookware items always have `units` field.
- * Some older Rust fixtures omit `units` on cookware; newer ones include it.
- */
-function normalizeExpectedResult(result: CanonicalResult): CanonicalResult {
-  return {
-    metadata: result.metadata,
-    steps: result.steps.map(step =>
-      step.map(item => {
-        if (item.type === "cookware") {
-          return { ...item, units: item.units || "" }
-        }
-        return item
-      }),
-    ),
-  }
 }
 
 interface CanonicalYaml {
