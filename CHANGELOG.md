@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/briansunter/cooklang-parse/compare/v1.2.0...v1.2.1) (2026-03-14)
+
+
+### Bug Fixes
+
+* Comprehensive codebase cleanup — 30 issues fixed across types, grammar, config, and tests ([cdc1792](https://github.com/briansunter/cooklang-parse/commit/cdc17922c7eb52ba4440a015f85d36484c5079fe))
+
 ## [1.2.0](https://github.com/briansunter/cooklang-parse/compare/v1.1.2...v1.2.0) (2026-02-20)
 
 
