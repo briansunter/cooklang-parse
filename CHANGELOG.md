@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/briansunter/cooklang-parse/compare/v1.2.1...v1.3.0) (2026-05-01)
+
+
+### Features
+
+* align top-level component arrays with cooklang-rs ([b95a004](https://github.com/briansunter/cooklang-parse/commit/b95a0049714a073c09c61554a3bd32010dcda0b7))
+
 ## [1.2.1](https://github.com/briansunter/cooklang-parse/compare/v1.2.0...v1.2.1) (2026-03-14)
 
 
