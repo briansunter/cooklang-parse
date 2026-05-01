@@ -25,18 +25,13 @@ const grammar = Ohm.grammar(grammarSource)
 const semantics = grammar.createSemantics()
 
 semantics.addOperation("toAST", {
-  Recipe(leading, _metadata, items) {
-    const frontmatter: string | null = _metadata.numChildren > 0 ? _metadata.child(0).toAST() : null
-
+  Recipe(leading, items) {
     const orderedItems: SemanticItem[] = []
 
-    // cooklang-rs frontmatter splitting ignores any pre-frontmatter content.
-    if (!frontmatter) {
-      for (const child of leading.children) {
-        const result = child.toAST()
-        if (isDirectiveNode(result)) {
-          orderedItems.push({ kind: "directive", directive: result })
-        }
+    for (const child of leading.children) {
+      const result = child.toAST()
+      if (isDirectiveNode(result)) {
+        orderedItems.push({ kind: "directive", directive: result })
       }
     }
 
@@ -52,11 +47,7 @@ semantics.addOperation("toAST", {
       }
     }
 
-    return { frontmatter, items: orderedItems }
-  },
-
-  Metadata(_dash1, yaml, _dash2) {
-    return yaml.sourceString
+    return { frontmatter: null, items: orderedItems }
   },
 
   Section_double(_eq1, name, _eq2) {

@@ -18,7 +18,7 @@ The `@` marks ingredients, `#` marks cookware, and `~` marks timers. That's the 
 - **Simple API** - One function call to parse a recipe into structured data with sections and ordered step items
 - **Ordered items** - Steps contain text interleaved with typed tokens, so you can render rich step text with inline links
 - **Numeric quantities** - Quantities are parsed to numbers when possible (`250` not `"250"`, `1/2` becomes `0.5`)
-- **Spec-compliant** - Verified against the official reference implementation with 57+ canonical test cases
+- **Spec-compliant** - Verified against the official reference implementation with canonical and default-parser parity tests
 - **Type-safe** - Full TypeScript types for every piece of parsed data
 - **Zero config** - Works out of the box with Bun, Node.js, or any bundler
 

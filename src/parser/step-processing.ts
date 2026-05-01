@@ -1,5 +1,4 @@
 import type { ParseError, RecipeInlineQuantity, RecipeStepItem, SourcePosition } from "../types"
-import type { DefineMode, DuplicateMode } from "./internal-types"
 import { parseWithOhm } from "./ohm-ast"
 import { parseQuantity } from "./quantity"
 import {
@@ -8,6 +7,7 @@ import {
   createTextItem,
   getStepItemPosition,
   offsetPosition,
+  serializeStepItemRaw,
   sliceTextItem,
 } from "./raw-step-items"
 
@@ -29,27 +29,6 @@ export function mergeConsecutiveTexts(items: RecipeStepItem[]): RecipeStepItem[]
       result[result.length - 1] = createTextItem(prev.value + item.value, itemPosition(prev))
     } else {
       result.push(item)
-    }
-  }
-  return result
-}
-
-/** Collect unique items of a given type across parsed step items. */
-export function collectUniqueFromSteps<K extends RecipeStepItem["type"]>(
-  allSteps: RecipeStepItem[][],
-  type: K,
-  key: (item: Extract<RecipeStepItem, { type: K }>) => string,
-): Extract<RecipeStepItem, { type: K }>[] {
-  const seen = new Set<string>()
-  const result: Extract<RecipeStepItem, { type: K }>[] = []
-  for (const step of allSteps) {
-    for (const item of step) {
-      if (item.type !== type) continue
-      const k = key(item as Extract<RecipeStepItem, { type: K }>)
-      if (!seen.has(k)) {
-        seen.add(k)
-        result.push(item as Extract<RecipeStepItem, { type: K }>)
-      }
     }
   }
   return result
@@ -432,37 +411,70 @@ export function applyAliasMode(
   })
 }
 
-export function applyDuplicateReferenceMode(
+function componentModifierPrefix(raw: string, marker: "@" | "#"): string {
+  const modifierChars =
+    marker === "@" ? new Set(["@", "&", "?", "+", "-"]) : new Set(["&", "?", "+", "-"])
+  let index = 1
+  while (modifierChars.has(raw[index] ?? "")) {
+    index += 1
+  }
+  return raw.slice(1, index)
+}
+
+function textFromRaw(item: RecipeStepItem, raw: string): RecipeStepItem {
+  return createTextItem(raw, getStepItemPosition(item))
+}
+
+export function applyComponentModifierParsing(
   stepItems: RecipeStepItem[],
-  duplicateMode: DuplicateMode,
-  knownIngredientDefinitions: Set<string>,
+  enabled: boolean,
 ): RecipeStepItem[] {
-  return stepItems.map(item => {
-    if (item.type !== "ingredient") {
-      return item
+  if (enabled) return stepItems
+
+  const result: RecipeStepItem[] = []
+
+  for (const item of stepItems) {
+    if (item.type !== "ingredient" && item.type !== "cookware") {
+      result.push(item)
+      continue
     }
 
-    const key = item.name.toLowerCase()
-    const shouldImplicitlyReference =
-      duplicateMode === "reference" &&
-      item.relation.type !== "reference" &&
-      !item.modifiers.new &&
-      !item.modifiers.recipe &&
-      knownIngredientDefinitions.has(key)
-
-    if (item.relation.type !== "reference" && (item.modifiers.new || !shouldImplicitlyReference)) {
-      knownIngredientDefinitions.add(key)
+    const marker = item.type === "ingredient" ? "@" : "#"
+    const raw = serializeStepItemRaw(item)
+    const prefix = componentModifierPrefix(raw, marker)
+    if (!prefix) {
+      result.push(item)
+      continue
     }
 
-    if (!shouldImplicitlyReference) {
-      return item
+    if (item.type === "ingredient" && prefix.startsWith("@")) {
+      result.push(textFromRaw(item, "@"))
+      const remainingPrefix = prefix.slice(1)
+      result.push(
+        copyStepItemSourceInfo(item, {
+          ...item,
+          name: `${remainingPrefix}${item.name}`,
+          modifiers: {},
+        }),
+      )
+      continue
     }
 
-    return copyStepItemSourceInfo(item, {
-      ...item,
-      relation: { type: "reference", referencesTo: -1, referenceTarget: "ingredient" },
-    })
-  })
+    if (!raw.includes("{")) {
+      result.push(textFromRaw(item, raw))
+      continue
+    }
+
+    result.push(
+      copyStepItemSourceInfo(item, {
+        ...item,
+        name: `${prefix}${item.name}`,
+        modifiers: {},
+      }),
+    )
+  }
+
+  return result
 }
 
 export function splitInvalidMarkerTextItems(stepItems: RecipeStepItem[]): RecipeStepItem[] {
@@ -546,39 +558,5 @@ export function warnUnnecessaryScalingLock(
       position: itemPosition(item),
       severity: "warning",
     })
-  }
-}
-
-export function checkStepsModeReferences(
-  stepItems: RecipeStepItem[],
-  defineMode: DefineMode,
-  knownIngredients: Set<string>,
-  knownCookware: Set<string>,
-  errors: ParseError[],
-): void {
-  for (const item of stepItems) {
-    if (item.type === "ingredient") {
-      const key = item.name.toLowerCase()
-      if (defineMode === "steps" && !item.modifiers.new && !knownIngredients.has(key)) {
-        errors.push({
-          message: `Reference not found: ${item.name}`,
-          shortMessage: `Reference not found: ${item.name}`,
-          position: itemPosition(item),
-          severity: "error",
-        })
-      }
-      knownIngredients.add(key)
-    } else if (item.type === "cookware") {
-      const key = item.name.toLowerCase()
-      if (defineMode === "steps" && !item.modifiers.new && !knownCookware.has(key)) {
-        errors.push({
-          message: `Reference not found: ${item.name}`,
-          shortMessage: `Reference not found: ${item.name}`,
-          position: itemPosition(item),
-          severity: "error",
-        })
-      }
-      knownCookware.add(key)
-    }
   }
 }

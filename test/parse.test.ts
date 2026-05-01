@@ -244,7 +244,7 @@ Mix @flour{250%g}.`
   expect(recipe.metadata.nutrition).toEqual({ calories: 300, protein: "15g" })
 })
 
-test("ingredients in multiple steps are deduplicated", () => {
+test("ingredients in multiple steps preserve cooklang-rs component entries", () => {
   const source = `
 Mix @flour{250%g}.
 
@@ -253,12 +253,10 @@ Add @flour{250%g} and @eggs{3}.
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.ingredients).toHaveLength(2)
-  expect(recipe.ingredients.some(i => i.name === "flour")).toBe(true)
-  expect(recipe.ingredients.some(i => i.name === "eggs")).toBe(true)
+  expect(recipe.ingredients.map(i => i.name)).toEqual(["flour", "flour", "eggs"])
 })
 
-test("cookware in multiple steps are deduplicated", () => {
+test("cookware in multiple steps preserve cooklang-rs component entries", () => {
   const source = `
 Mix in #bowl.
 
@@ -267,12 +265,10 @@ Pour into #pan and then back into #bowl.
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.cookware).toHaveLength(2)
-  expect(recipe.cookware.some(c => c.name === "bowl")).toBe(true)
-  expect(recipe.cookware.some(c => c.name === "pan")).toBe(true)
+  expect(recipe.cookware.map(c => c.name)).toEqual(["bowl", "pan", "bowl"])
 })
 
-test("timers in multiple steps are deduplicated", () => {
+test("timers in multiple steps preserve cooklang-rs component entries", () => {
   const source = `
 Cook for ~{10%minutes}.
 
@@ -281,8 +277,10 @@ Rest for ~{10%minutes}.
 
   const recipe = parseCooklang(source)
 
-  expect(recipe.timers).toHaveLength(1)
-  expect(recipe.timers[0]).toEqual({ type: "timer", name: "", quantity: 10, units: "minutes" })
+  expect(recipe.timers).toEqual([
+    { type: "timer", name: "", quantity: 10, units: "minutes" },
+    { type: "timer", name: "", quantity: 10, units: "minutes" },
+  ])
 })
 
 test("grammar export is an Ohm grammar object", () => {
@@ -769,11 +767,12 @@ test("parse fixed quantity inside braces without unit", () => {
 })
 
 test("parse extended ingredient modifier syntax", () => {
-  const source = `Add @@tomato sauce{200%ml}, @&flour{300%g}, and @white wine|wine{}.`
+  const source = `Add @@tomato sauce{200%ml}, @flour{100%g}, @&flour{300%g}, and @white wine|wine{}.`
 
   const recipe = parseCooklang(source, { extensions: "all" })
 
-  expect(recipe.ingredients).toHaveLength(3)
+  expect(recipe.errors).toEqual([])
+  expect(recipe.ingredients).toHaveLength(4)
   expect(recipe.ingredients[0]).toEqual({
     type: "ingredient",
     name: "tomato sauce",
@@ -786,13 +785,22 @@ test("parse extended ingredient modifier syntax", () => {
   expect(recipe.ingredients[1]).toEqual({
     type: "ingredient",
     name: "flour",
+    quantity: 100,
+    units: "g",
+    fixed: false,
+    modifiers: {},
+    relation: { type: "definition", referencedFrom: [2], definedInStep: true },
+  })
+  expect(recipe.ingredients[2]).toEqual({
+    type: "ingredient",
+    name: "flour",
     quantity: 300,
     units: "g",
     fixed: false,
-    modifiers: { reference: false },
-    relation: { type: "definition", referencedFrom: [0], definedInStep: true },
+    modifiers: { reference: true },
+    relation: { type: "reference", referencesTo: 1, referenceTarget: "ingredient" },
   })
-  expect(recipe.ingredients[2]).toEqual({
+  expect(recipe.ingredients[3]).toEqual({
     type: "ingredient",
     name: "white wine",
     alias: "wine",
@@ -802,6 +810,44 @@ test("parse extended ingredient modifier syntax", () => {
     modifiers: {},
     relation: { type: "definition", referencedFrom: [], definedInStep: true },
   })
+})
+
+test("unresolved explicit references stay as components and report errors", () => {
+  const recipe = parseCooklang("Add @&flour{300%g} and #&pan\n", { extensions: "all" })
+
+  expect(recipe.errors.map(error => error.message)).toEqual([
+    "Reference not found: flour",
+    "Reference not found: pan",
+  ])
+  expect(recipe.ingredients[0]).toMatchObject({
+    type: "ingredient",
+    name: "flour",
+    modifiers: { reference: true },
+    relation: { type: "definition", referencedFrom: [], definedInStep: true },
+  })
+  expect(recipe.cookware[0]).toMatchObject({
+    type: "cookware",
+    name: "pan",
+    modifiers: { reference: true },
+    relation: { type: "definition", referencedFrom: [], definedInStep: true },
+  })
+})
+
+test("canonical mode treats extension modifiers like cooklang-rs Extensions::empty", () => {
+  const recipe = parseCooklang(
+    "Add @&flour{300%g}, @?garnish, @+extra cheese{}, @-onion, and @@tomato sauce{200%ml}.\n",
+  )
+
+  expect(recipe.errors).toEqual([])
+  expect(recipe.ingredients.map(i => i.name)).toEqual(["&flour", "+extra cheese", "tomato sauce"])
+
+  const text = getSteps(recipe)[0]
+    ?.filter(item => item.type === "text")
+    .map(item => (item.type === "text" ? item.value : ""))
+    .join("")
+  expect(text).toContain("@?garnish")
+  expect(text).toContain("@-onion")
+  expect(text).toContain("@")
 })
 
 test("grammar parse error returns error", () => {
@@ -1020,6 +1066,36 @@ description: Keep [- these brackets -] literally
   })
 })
 
+test("frontmatter fences only close on whole fence lines", () => {
+  const source = `---
+title: A --- B
+---
+Add @flour{}
+`
+
+  const recipe = parseCooklang(source)
+
+  expect(recipe.metadata).toEqual({ title: "A --- B" })
+  expect(recipe.ingredients.map(i => i.name)).toEqual(["flour"])
+  expect(recipe.errors).toEqual([])
+})
+
+test("single YAML fence is plain recipe text, not frontmatter", () => {
+  const source = `---
+Add @flour{}
+`
+
+  const recipe = parseCooklang(source)
+
+  expect(recipe.metadata).toEqual({})
+  expect(recipe.ingredients.map(i => i.name)).toEqual(["flour"])
+  const text = getSteps(recipe)[0]
+    ?.filter(i => i.type === "text")
+    .map(i => (i.type === "text" ? i.value : ""))
+    .join("")
+  expect(text).toBe("--- Add ")
+})
+
 test("note text preserves literal block comment syntax", () => {
   const source = `> Keep [- this -] text
 `
@@ -1052,8 +1128,20 @@ test("duplicate reference mode creates implicit ingredient references", () => {
   const step = getSteps(recipe)[0]
   expect(step).toBeDefined()
 
-  expect(recipe.ingredients).toHaveLength(1)
+  expect(recipe.ingredients).toHaveLength(2)
   expect(recipe.ingredients[0]?.quantity).toBe(1)
+  expect(recipe.ingredients[0]?.relation).toEqual({
+    type: "definition",
+    referencedFrom: [1],
+    definedInStep: true,
+  })
+  expect(recipe.ingredients[1]).toMatchObject({
+    type: "ingredient",
+    name: "water",
+    quantity: 2,
+    modifiers: { reference: true },
+    relation: { type: "reference", referencesTo: 0, referenceTarget: "ingredient" },
+  })
   expect(step?.[0]).toMatchObject({
     type: "ingredient",
     name: "water",
@@ -1089,7 +1177,12 @@ test("explicit references resolve to the most recent matching definition", () =>
   const recipe = parseCooklang(source, { extensions: "all" })
   const ingredientItems = getSteps(recipe)[0]?.filter(i => i.type === "ingredient") ?? []
 
-  expect(recipe.ingredients.map(i => i.quantity)).toEqual([1, 2])
+  expect(recipe.ingredients.map(i => i.quantity)).toEqual([1, 2, 3])
+  expect(recipe.ingredients[1]?.relation).toEqual({
+    type: "definition",
+    referencedFrom: [2],
+    definedInStep: true,
+  })
   expect(ingredientItems[2]).toMatchObject({
     type: "ingredient",
     quantity: 3,
@@ -1134,7 +1227,7 @@ test("warnUnnecessaryScalingLock emits warning for fixed quantities", () => {
   expect(recipe.warnings.some(w => w.message.includes("Unnecessary scaling lock"))).toBe(true)
 })
 
-test("checkStepsModeReferences emits error for undefined ingredient in steps mode", () => {
+test("steps mode emits error for undefined ingredient references", () => {
   const source = `>> [mode]: steps
 @water{1%cup}
 `

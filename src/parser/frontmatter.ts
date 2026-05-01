@@ -9,6 +9,76 @@ interface YamlParseResult {
 
 import { isRecord } from "../utils"
 
+export interface FrontmatterSplit {
+  yamlText: string
+  yamlOffset: number
+  cooklangOffset: number
+}
+
+function preserveNewlinesAsSpaces(text: string): string {
+  return text.replace(/[^\n\r]/g, " ")
+}
+
+function splitLinesInclusive(source: string): Array<{ line: string; offset: number }> {
+  const lines: Array<{ line: string; offset: number }> = []
+  let offset = 0
+
+  while (offset < source.length) {
+    const lineStart = offset
+    while (offset < source.length && source[offset] !== "\n" && source[offset] !== "\r") {
+      offset += 1
+    }
+
+    if (source[offset] === "\r" && source[offset + 1] === "\n") {
+      offset += 2
+    } else if (source[offset] === "\n" || source[offset] === "\r") {
+      offset += 1
+    }
+
+    lines.push({ line: source.slice(lineStart, offset), offset: lineStart })
+  }
+
+  if (source.length === 0) {
+    return []
+  }
+
+  return lines
+}
+
+function isYamlFenceLine(line: string): boolean {
+  return line.trimEnd() === "---"
+}
+
+export function splitYamlFrontmatter(source: string): FrontmatterSplit | null {
+  let firstFence: { start: number; end: number } | null = null
+
+  for (const { line, offset } of splitLinesInclusive(source)) {
+    if (!isYamlFenceLine(line)) continue
+
+    const fence = { start: offset, end: offset + line.length }
+    if (!firstFence) {
+      firstFence = fence
+      continue
+    }
+
+    return {
+      yamlText: source.slice(firstFence.end, fence.start),
+      yamlOffset: firstFence.end,
+      cooklangOffset: fence.end,
+    }
+  }
+
+  return null
+}
+
+export function maskFrontmatter(source: string, split: FrontmatterSplit | null): string {
+  if (!split) return source
+  return (
+    preserveNewlinesAsSpaces(source.slice(0, split.cooklangOffset)) +
+    source.slice(split.cooklangOffset)
+  )
+}
+
 function computeYamlOffset(content: string, line: number, col: number): number {
   const linesAbove = content.split("\n").slice(0, line - 1)
   return linesAbove.reduce((sum, l) => sum + l.length + 1, 0) + col - 1

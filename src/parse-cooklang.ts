@@ -1,5 +1,5 @@
 import { hasAllExtensions, resolveExtensions } from "./parser/extensions"
-import { parseYamlFrontmatter } from "./parser/frontmatter"
+import { maskFrontmatter, parseYamlFrontmatter, splitYamlFrontmatter } from "./parser/frontmatter"
 import type { DefineMode, DirectiveNode, DuplicateMode } from "./parser/internal-types"
 import {
   applyDirectiveMode,
@@ -14,11 +14,9 @@ import { getStepItemPosition, serializeStepItemRaw } from "./parser/raw-step-ite
 import {
   applyAdvancedUnits,
   applyAliasMode,
-  applyDuplicateReferenceMode,
+  applyComponentModifierParsing,
   applyInlineQuantityExtraction,
   applySpacedMarkerParsing,
-  checkStepsModeReferences,
-  collectUniqueFromSteps,
   DEFAULT_POSITION,
   mergeConsecutiveTexts,
   removeBlockCommentPlaceholders,
@@ -54,7 +52,9 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
   const extensions = resolveExtensions(options)
   const allExtensions = hasAllExtensions(options)
 
-  const preprocessed = stripBlockComments(source)
+  const frontmatterSplit = splitYamlFrontmatter(source)
+  const sourceForParsing = maskFrontmatter(source, frontmatterSplit)
+  const preprocessed = stripBlockComments(sourceForParsing)
   const withoutBlockComments = preprocessed.source
 
   const parsed = parseWithOhm(withoutBlockComments)
@@ -64,21 +64,9 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
 
   const result = parsed.value
 
-  const yamlStartOffset = result.frontmatter
-    ? (() => {
-        const idx = withoutBlockComments.indexOf("---")
-        const afterDashes = idx + 3
-        // Skip past the newline after ---
-        if (
-          withoutBlockComments[afterDashes] === "\r" &&
-          withoutBlockComments[afterDashes + 1] === "\n"
-        )
-          return afterDashes + 2
-        if (withoutBlockComments[afterDashes] === "\n") return afterDashes + 1
-        return afterDashes
-      })()
-    : 0
-  const yaml = result.frontmatter ? parseYamlFrontmatter(result.frontmatter, yamlStartOffset) : null
+  const yaml = frontmatterSplit
+    ? parseYamlFrontmatter(frontmatterSplit.yamlText, frontmatterSplit.yamlOffset)
+    : null
 
   const warnings: ParseError[] = []
   const errors: ParseError[] = []
@@ -91,13 +79,17 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     })
   }
 
-  const hasFrontmatter = result.frontmatter !== null
+  const hasFrontmatter = frontmatterSplit !== null
   const metadata: Record<string, unknown> = { ...(yaml?.data ?? {}) }
   const usedMetadataDirectives: DirectiveNode[] = []
 
   const allSections: RecipeSection[] = []
-  const allStepsForComponents: RecipeStepItem[][] = []
-  const componentSeedSteps: RecipeStepItem[][] = []
+  const componentSteps: Array<{
+    items: RecipeStepItem[]
+    definedInStep: boolean
+    defineMode: DefineMode
+    duplicateMode: DuplicateMode
+  }> = []
   const inlineQuantities: RecipeInlineQuantity[] = []
 
   let defineMode: DefineMode = "all"
@@ -106,10 +98,6 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
   allSections.push(currentSection)
 
   let stepNumber = 1
-  const knownIngredientDefs = new Set<string>()
-  const knownCookwareDefs = new Set<string>()
-  const duplicateIngredientDefs = new Set<string>()
-
   for (const item of result.items) {
     if (item.kind === "directive") {
       const dir = item.directive
@@ -140,7 +128,12 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
           items: directiveStepItems,
           number: stepNumber++,
         })
-        allStepsForComponents.push(directiveStepItems)
+        componentSteps.push({
+          items: directiveStepItems,
+          definedInStep: true,
+          defineMode,
+          duplicateMode,
+        })
         continue
       }
 
@@ -169,8 +162,8 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     let stepItems = applySpacedMarkerParsing(item.items)
     stepItems = removeBlockCommentPlaceholders(stepItems, preprocessed.commentRanges)
     stepItems = applyAdvancedUnits(stepItems, allExtensions)
+    stepItems = applyComponentModifierParsing(stepItems, allExtensions)
     stepItems = applyAliasMode(stepItems, allExtensions)
-    stepItems = applyDuplicateReferenceMode(stepItems, duplicateMode, duplicateIngredientDefs)
     stepItems = mergeConsecutiveTexts(stepItems)
     stepItems = splitInvalidMarkerTextItems(stepItems)
 
@@ -191,11 +184,14 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
 
     warnTimerMissingUnit(stepItems, warnings)
     warnUnnecessaryScalingLock(stepItems, warnings)
-    checkStepsModeReferences(stepItems, defineMode, knownIngredientDefs, knownCookwareDefs, errors)
 
     if (defineMode === "components") {
-      allStepsForComponents.push(stepItems)
-      componentSeedSteps.push(stepItems)
+      componentSteps.push({
+        items: stepItems,
+        definedInStep: false,
+        defineMode,
+        duplicateMode,
+      })
       continue
     }
 
@@ -236,7 +232,12 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
       items: stepItems,
       number: stepNumber++,
     })
-    allStepsForComponents.push(stepItems)
+    componentSteps.push({
+      items: stepItems,
+      definedInStep: true,
+      defineMode,
+      duplicateMode,
+    })
   }
 
   checkStandardMetadata(metadata, warnings, usedMetadataDirectives)
@@ -248,129 +249,112 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
 
   const sections = allSections.filter(s => s.name !== null || s.content.length > 0)
 
-  const keyFn = (i: { name: string; quantity: string | number; units: string }) =>
-    `${i.name}|${i.quantity}|${i.units}`
-
-  // Collect definitions and link references in document order.
+  // Collect components and link references in document order, matching cooklang-rs:
+  // top-level arrays keep every parsed component, not a deduplicated shopping list.
   const ingredients: RecipeIngredient[] = []
   const cookware: RecipeCookware[] = []
-  const ingredientIndexByKey = new Map<string, number>()
   const ingredientLastDefinitionByName = new Map<string, number>()
-  const cookwareIndexByName = new Map<string, number>()
   const cookwareLastDefinitionByName = new Map<string, number>()
+  const timers = componentSteps.flatMap(step => step.items.filter(item => item.type === "timer"))
 
-  for (const step of componentSeedSteps) {
-    for (const item of step) {
-      if (item.type === "ingredient" && item.relation.type !== "reference") {
-        const definitionKey = keyFn(item)
-        const nameKey = item.name.toLowerCase()
-        let defIndex = ingredientIndexByKey.get(definitionKey)
-        if (defIndex === undefined) {
-          defIndex = ingredients.length
-          ingredients.push(item)
-          ingredientIndexByKey.set(definitionKey, defIndex)
-        }
-        ingredientLastDefinitionByName.set(nameKey, defIndex)
-      } else if (item.type === "cookware" && item.relation.type !== "reference") {
-        const nameKey = item.name.toLowerCase()
-        let defIndex = cookwareIndexByName.get(nameKey)
-        if (defIndex === undefined) {
-          defIndex = cookware.length
-          cookware.push(item)
-          cookwareIndexByName.set(nameKey, defIndex)
-        }
-        cookwareLastDefinitionByName.set(nameKey, defIndex)
-      }
+  function referenceNotFoundError(item: RecipeIngredient | RecipeCookware): ParseError {
+    return {
+      message: `Reference not found: ${item.name}`,
+      shortMessage: `Reference not found: ${item.name}`,
+      position: getStepItemPosition(item) ?? DEFAULT_POSITION,
+      severity: "error",
     }
   }
 
-  // Note: relation fields are mutated in-place on step items that are shared
-  // between sections[].content[].items and the top-level ingredients/cookware arrays.
-  // This is intentional — both references point to the same object.
-  let globalStepIndex = 0
-  for (const section of sections) {
-    for (const content of section.content) {
-      if (content.type !== "step") continue
+  function linkIngredientReference(item: RecipeIngredient, referencesTo: number): void {
+    item.modifiers = { ...item.modifiers, reference: true }
+    item.relation = {
+      type: "reference",
+      referencesTo,
+      referenceTarget: "ingredient",
+    }
+    const referenceIndex = ingredients.length
+    const defRelation = ingredients[referencesTo]?.relation
+    if (defRelation?.type === "definition") {
+      defRelation.referencedFrom.push(referenceIndex)
+    }
+  }
 
-      for (const item of content.items) {
-        if (item.type === "ingredient") {
-          const nameKey = item.name.toLowerCase()
+  function linkCookwareReference(item: RecipeCookware, referencesTo: number): void {
+    item.modifiers = { ...item.modifiers, reference: true }
+    item.relation = { type: "reference", referencesTo }
+    const referenceIndex = cookware.length
+    const defRelation = cookware[referencesTo]?.relation
+    if (defRelation?.type === "definition") {
+      defRelation.referencedFrom.push(referenceIndex)
+    }
+  }
 
-          if (item.relation.type === "reference") {
-            let defIndex = ingredientLastDefinitionByName.get(nameKey)
+  for (const step of componentSteps) {
+    for (const item of step.items) {
+      if (item.type === "ingredient") {
+        const nameKey = item.name.toLowerCase()
+        const previousDefinition = ingredientLastDefinitionByName.get(nameKey)
+        const isExplicitReference = item.modifiers.reference === true
+        const isImplicitStepsReference = step.defineMode === "steps" && !item.modifiers.new
+        const isImplicitDuplicateReference =
+          step.duplicateMode === "reference" &&
+          !item.modifiers.new &&
+          previousDefinition !== undefined
+        const shouldReference =
+          isExplicitReference || isImplicitStepsReference || isImplicitDuplicateReference
 
-            if (defIndex === undefined) {
-              const pseudoDef = {
-                ...item,
-                modifiers: { ...item.modifiers, reference: false },
-                relation: { type: "definition" as const, referencedFrom: [], definedInStep: true },
-              }
-              defIndex = ingredients.length
-              ingredients.push(pseudoDef)
-              ingredientIndexByKey.set(keyFn(pseudoDef), defIndex)
-              ingredientLastDefinitionByName.set(nameKey, defIndex)
-            }
+        item.relation = {
+          type: "definition",
+          referencedFrom: [],
+          definedInStep: step.definedInStep,
+        }
 
-            item.relation = {
-              type: "reference",
-              referencesTo: defIndex,
-              referenceTarget: "ingredient",
-            }
-            if (defIndex >= 0) {
-              const defRelation = ingredients[defIndex]?.relation
-              if (defRelation?.type === "definition" && defRelation.referencedFrom) {
-                defRelation.referencedFrom.push(globalStepIndex)
-              }
-            }
-            continue
+        if (shouldReference) {
+          if (previousDefinition !== undefined) {
+            linkIngredientReference(item, previousDefinition)
+          } else if (isExplicitReference || isImplicitStepsReference) {
+            errors.push(referenceNotFoundError(item))
           }
+        }
 
-          const definitionKey = keyFn(item)
-          let defIndex = ingredientIndexByKey.get(definitionKey)
-          if (defIndex === undefined) {
-            defIndex = ingredients.length
-            ingredients.push(item)
-            ingredientIndexByKey.set(definitionKey, defIndex)
+        const itemIndex = ingredients.length
+        ingredients.push(item)
+        if (item.modifiers.reference !== true) {
+          ingredientLastDefinitionByName.set(nameKey, itemIndex)
+        }
+      } else if (item.type === "cookware") {
+        const nameKey = item.name.toLowerCase()
+        const previousDefinition = cookwareLastDefinitionByName.get(nameKey)
+        const isExplicitReference = item.modifiers.reference === true
+        const isImplicitStepsReference = step.defineMode === "steps" && !item.modifiers.new
+        const isImplicitDuplicateReference =
+          step.duplicateMode === "reference" &&
+          !item.modifiers.new &&
+          previousDefinition !== undefined
+        const shouldReference =
+          isExplicitReference || isImplicitStepsReference || isImplicitDuplicateReference
+
+        item.relation = {
+          type: "definition",
+          referencedFrom: [],
+          definedInStep: step.definedInStep,
+        }
+
+        if (shouldReference) {
+          if (previousDefinition !== undefined) {
+            linkCookwareReference(item, previousDefinition)
+          } else if (isExplicitReference || isImplicitStepsReference) {
+            errors.push(referenceNotFoundError(item))
           }
-          ingredientLastDefinitionByName.set(nameKey, defIndex)
-        } else if (item.type === "cookware") {
-          const nameKey = item.name.toLowerCase()
+        }
 
-          if (item.relation.type === "reference") {
-            let defIndex = cookwareLastDefinitionByName.get(nameKey)
-
-            if (defIndex === undefined) {
-              const pseudoDef = {
-                ...item,
-                modifiers: { ...item.modifiers, reference: false },
-                relation: { type: "definition" as const, referencedFrom: [], definedInStep: true },
-              }
-              defIndex = cookware.length
-              cookware.push(pseudoDef)
-              cookwareIndexByName.set(nameKey, defIndex)
-              cookwareLastDefinitionByName.set(nameKey, defIndex)
-            }
-
-            item.relation = { type: "reference", referencesTo: defIndex }
-            if (defIndex >= 0) {
-              const defRelation = cookware[defIndex]?.relation
-              if (defRelation?.type === "definition" && defRelation.referencedFrom) {
-                defRelation.referencedFrom.push(globalStepIndex)
-              }
-            }
-            continue
-          }
-
-          let defIndex = cookwareIndexByName.get(nameKey)
-          if (defIndex === undefined) {
-            defIndex = cookware.length
-            cookware.push(item)
-            cookwareIndexByName.set(nameKey, defIndex)
-          }
-          cookwareLastDefinitionByName.set(nameKey, defIndex)
+        const itemIndex = cookware.length
+        cookware.push(item)
+        if (item.modifiers.reference !== true) {
+          cookwareLastDefinitionByName.set(nameKey, itemIndex)
         }
       }
-      globalStepIndex++
     }
   }
 
@@ -379,7 +363,7 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     sections,
     ingredients,
     cookware,
-    timers: collectUniqueFromSteps(allStepsForComponents, "timer", keyFn),
+    timers,
     inlineQuantities,
     errors,
     warnings,

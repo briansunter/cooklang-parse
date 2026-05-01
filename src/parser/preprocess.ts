@@ -79,8 +79,6 @@ export function stripBlockComments(source: string): {
 } {
   let output = ""
   let idx = 0
-  let inFrontmatter = false
-  let frontmatterAllowed = true
   let inBlockComment = false
   const commentRanges: CommentRange[] = []
 
@@ -100,25 +98,6 @@ export function stripBlockComments(source: string): {
     } else if (source[idx] === "\n" || source[idx] === "\r") {
       newline = source[idx] ?? ""
       idx += 1
-    }
-
-    if (!inFrontmatter && frontmatterAllowed && line === "---") {
-      inFrontmatter = true
-      output += line + newline
-      continue
-    }
-
-    if (inFrontmatter) {
-      output += line + newline
-      if (line === "---") {
-        inFrontmatter = false
-        frontmatterAllowed = false
-      }
-      continue
-    }
-
-    if (frontmatterAllowed && line.trim() !== "" && !/^\s*>>/.test(line)) {
-      frontmatterAllowed = false
     }
 
     if (!inBlockComment && shouldPreserveLine(line)) {

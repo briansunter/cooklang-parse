@@ -103,32 +103,37 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
       expect(at(r.ingredients, 0).units).toBe("ml")
     })
 
-    it("Modifier @ (reference): @@tomato sauce{200%ml}", () => {
-      const r = noErrors("Add @@tomato sauce{200%ml}")
+    it("Modifier @ (recipe): @@tomato sauce{200%ml}", () => {
+      const r = parseCooklang("Add @@tomato sauce{200%ml}", { extensions: "all" })
+      expect(r.errors).toEqual([])
       expect(at(r.ingredients, 0).name).toBe("tomato sauce")
       expect(at(r.ingredients, 0).quantity).toBe(200)
       expect(at(r.ingredients, 0).units).toBe("ml")
     })
 
-    it("Modifier & (hidden): @&flour{300%g}", () => {
-      const r = noErrors("Mix @&flour{300%g}")
-      expect(at(r.ingredients, 0).name).toBe("flour")
-      expect(at(r.ingredients, 0).quantity).toBe(300)
-      expect(at(r.ingredients, 0).units).toBe("g")
+    it("Modifier & (reference): @&flour{300%g}", () => {
+      const r = parseCooklang("Mix @flour{} and @&flour{300%g}", { extensions: "all" })
+      expect(r.errors).toEqual([])
+      expect(at(r.ingredients, 1).name).toBe("flour")
+      expect(at(r.ingredients, 1).quantity).toBe(300)
+      expect(at(r.ingredients, 1).units).toBe("g")
     })
 
     it("Modifier ? (optional): @?garnish", () => {
-      const r = noErrors("Top with @?garnish")
+      const r = parseCooklang("Top with @?garnish", { extensions: "all" })
+      expect(r.errors).toEqual([])
       expect(at(r.ingredients, 0).name).toBe("garnish")
     })
 
     it("Modifier + (added): @+extra cheese{}", () => {
-      const r = noErrors("Add @+extra cheese{}")
+      const r = parseCooklang("Add @+extra cheese{}", { extensions: "all" })
+      expect(r.errors).toEqual([])
       expect(at(r.ingredients, 0).name).toBe("extra cheese")
     })
 
     it("Modifier - (removed): @-onion", () => {
-      const r = noErrors("Remove @-onion")
+      const r = parseCooklang("Remove @-onion", { extensions: "all" })
+      expect(r.errors).toEqual([])
       expect(at(r.ingredients, 0).name).toBe("onion")
     })
 
@@ -181,13 +186,15 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
       expect(at(r.cookware, 0).quantity).toBe(2)
     })
 
-    it("Cookware modifier & (hidden): #&pan", () => {
-      const r = noErrors("Use a #&pan")
-      expect(at(r.cookware, 0).name).toBe("pan")
+    it("Cookware modifier & (reference): #&pan", () => {
+      const r = parseCooklang("Use a #pan and #&pan", { extensions: "all" })
+      expect(r.errors).toEqual([])
+      expect(at(r.cookware, 1).name).toBe("pan")
     })
 
     it("Cookware modifier ? (optional): #?blender", () => {
-      const r = noErrors("Use a #?blender")
+      const r = parseCooklang("Use a #?blender", { extensions: "all" })
+      expect(r.errors).toEqual([])
       expect(at(r.cookware, 0).name).toBe("blender")
     })
   })

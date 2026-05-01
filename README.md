@@ -12,7 +12,7 @@
 - Full Cooklang spec support including ingredients, cookware, timers, metadata, sections, notes, and YAML frontmatter
 - Written in TypeScript with exported type definitions
 - Single function API with extension presets — `parseCooklang(source, options?)`
-- 235 tests with parity coverage against [cooklang-rs](https://github.com/cooklang/cooklang-rs) canonical and default parser behaviors
+- 252 tests with parity coverage against [cooklang-rs](https://github.com/cooklang/cooklang-rs) canonical and default parser behaviors
 - Source position tracking and parse error reporting
 
 ## Installation
@@ -94,15 +94,15 @@ interface ParseCooklangOptions {
 ```
 
 - `"canonical"`: canonical/spec behavior (extensions off)
-- `"all"`: cooklang-rs default behavior (modes + inline temperature quantities)
+- `"all"`: cooklang-rs default behavior (component modifiers, aliases, modes, advanced units, and inline temperature quantities)
 
 ```typescript
 interface CooklangRecipe {
   metadata: Record<string, unknown>
   sections: RecipeSection[]        // Sections with interleaved steps and notes
-  ingredients: RecipeIngredient[]  // Deduplicated across all steps
-  cookware: RecipeCookware[]       // Deduplicated across all steps
-  timers: RecipeTimer[]            // Deduplicated across all steps
+  ingredients: RecipeIngredient[]  // All ingredient components in cooklang-rs order
+  cookware: RecipeCookware[]       // All cookware components in cooklang-rs order
+  timers: RecipeTimer[]            // All timer components in cooklang-rs order
   inlineQuantities: Array<{ quantity: number | string; units: string }>
   errors: ParseError[]
   warnings: ParseError[]
@@ -120,7 +120,7 @@ type SectionContent =
 
 **`sections`** contains all recipe content. Each section has a `name` (null for the default section) and `content` — an interleaved array of steps and text (notes). Steps contain ordered `RecipeStepItem[]` arrays with text and typed tokens in document order.
 
-**`ingredients`**, **`cookware`**, and **`timers`** are deduplicated across all steps.
+**`ingredients`**, **`cookware`**, and **`timers`** preserve every parsed component entry, including duplicates and references, matching `cooklang-rs`. Use each component's `relation` field to distinguish definitions from references.
 
 ### Types
 
@@ -215,7 +215,7 @@ recipe.ingredients.map(i => `${i.quantity} ${i.units} ${i.name}`.trim())
 
 ```bash
 bun install          # Install dependencies
-bun test             # Run all 235 tests
+bun test             # Run all 252 tests
 bun run build        # Bundle + emit declarations
 bun run typecheck    # Type-check without emitting
 bun run lint         # Lint with Biome

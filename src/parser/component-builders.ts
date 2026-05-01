@@ -1,10 +1,4 @@
-import type {
-  ComponentRelation,
-  IngredientRelation,
-  RecipeCookware,
-  RecipeIngredient,
-  RecipeModifiers,
-} from "../types"
+import type { RecipeCookware, RecipeIngredient, RecipeModifiers } from "../types"
 
 /** Extract name and optional alias from a raw name string containing optional pipe syntax. */
 function splitNameAlias(rawName: string): { name: string; alias?: string } {
@@ -33,11 +27,13 @@ export function buildIngredient(
 ): RecipeIngredient {
   const { name, alias } = splitNameAlias(rawName)
   const modifiers = parseModifiers(mods)
-  const relation: IngredientRelation = modifiers.reference
-    ? { type: "reference", referencesTo: -1, referenceTarget: "ingredient" }
-    : { type: "definition", referencedFrom: [], definedInStep: true }
-
-  const ingredient: RecipeIngredient = { type: "ingredient", name, modifiers, relation, ...amount }
+  const ingredient: RecipeIngredient = {
+    type: "ingredient",
+    name,
+    modifiers,
+    relation: { type: "definition", referencedFrom: [], definedInStep: true },
+    ...amount,
+  }
   if (alias !== undefined) ingredient.alias = alias
   if (note !== undefined) ingredient.note = note
   return ingredient
@@ -52,9 +48,6 @@ export function buildCookware(
 ): RecipeCookware {
   const { name, alias } = splitNameAlias(rawName)
   const modifiers = parseModifiers(mods)
-  const relation: ComponentRelation = modifiers.reference
-    ? { type: "reference", referencesTo: -1 }
-    : { type: "definition", referencedFrom: [], definedInStep: true }
 
   const cookware: RecipeCookware = {
     type: "cookware",
@@ -62,7 +55,7 @@ export function buildCookware(
     quantity,
     units: "",
     modifiers,
-    relation,
+    relation: { type: "definition", referencedFrom: [], definedInStep: true },
   }
   if (alias !== undefined) cookware.alias = alias
   if (note !== undefined) cookware.note = note

@@ -69,10 +69,10 @@ recipe.errors       // []
 ## Behavior
 
 - **Sections** -- Recipe content is organized into `RecipeSection[]`. Each section has a `name` (null for the default unnamed section) and `content` -- an interleaved array of steps and text (notes).
-- **Deduplication** -- Ingredients, cookware, and timers are deduplicated across steps. If the same ingredient with the same quantity appears in multiple steps, it appears once in the top-level arrays.
+- **Component arrays** -- Ingredients, cookware, and timers preserve every parsed component entry in document order, including duplicates and references. This matches `cooklang-rs`; use each component's `relation` field to identify definitions and references.
 - **Numeric quantities** -- Quantities are parsed to numbers when possible (`250` not `"250"`, fractions like `1/2` become `0.5`). Non-numeric quantities remain strings.
 - **Default values** -- Ingredients without a quantity get `"some"`. Cookware defaults to quantity `1`. The `units` field is always present (empty string `""` if no unit).
 - **Step structure** -- Each step is a flat `RecipeStepItem[]` array with text and tokens in document order.
 - **Metadata** -- In canonical mode, `>> key: value` lines populate metadata only when no frontmatter exists. With frontmatter, non-special `>>` lines are treated as regular text steps.
-- **Extensions preset** -- Use `{ extensions: "all" }` to enable cooklang-rs default parser behavior, including `[mode]/[define]/[duplicate]` handling and inline temperature quantities.
+- **Extensions preset** -- Use `{ extensions: "all" }` to enable cooklang-rs default parser behavior, including component modifiers, aliases, `[mode]/[define]/[duplicate]` handling, and inline temperature quantities.
 - **Quantity separator** -- Only `%` separates quantity from unit: `@flour{250%g}`. Without `%`, the entire brace content is the quantity: `@water{2 cups}` gives `quantity: "2 cups", units: ""`.

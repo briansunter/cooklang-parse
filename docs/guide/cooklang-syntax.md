@@ -50,7 +50,7 @@ Add @white wine|wine{100%ml} to deglaze.
 
 ### Modifiers
 
-Modifiers are single characters placed immediately after the `@` symbol to change the ingredient's behavior. They are fully supported.
+Modifiers are single characters placed immediately after the `@` symbol to change the ingredient's behavior. They are available with `{ extensions: "all" }`, matching the default `cooklang-rs` parser.
 
 | Modifier | Meaning | Example |
 | -------- | ------- | ------- |
@@ -78,7 +78,7 @@ Heat in #pan(large).
 
 ### Cookware Modifiers
 
-Cookware supports the same modifiers as ingredients, placed immediately after the `#` symbol:
+With `{ extensions: "all" }`, cookware supports the same modifiers as ingredients, placed immediately after the `#` symbol:
 
 ```txt
 Use a #?blender to mix. 

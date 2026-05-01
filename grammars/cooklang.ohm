@@ -6,18 +6,11 @@
 Cooklang {
   // Main recipe structure
   Recipe
-    = (MetadataDirective | blankLine)* Metadata? RecipeItem*
+    = (MetadataDirective | blankLine)* RecipeItem*
 
   // Recipe items can be interleaved
   RecipeItem
     = Section | MetadataDirective | Note | CommentLine | blankLine | spaceOnly | Step
-
-  // YAML front matter metadata
-  Metadata
-    = "---" YamlContent "---"
-
-  YamlContent
-    = (~"---" any)*
 
   // Named section ==Name==
   Section

@@ -30,9 +30,9 @@ The top-level result returned by `parseCooklang()`.
 interface CooklangRecipe {
   metadata: Record<string, unknown>  // YAML front matter or >> directives
   sections: RecipeSection[]          // Sections with interleaved steps and notes
-  ingredients: RecipeIngredient[]    // Deduplicated across all steps
-  cookware: RecipeCookware[]         // Deduplicated across all steps
-  timers: RecipeTimer[]              // Deduplicated across all steps
+  ingredients: RecipeIngredient[]    // All ingredient components in cooklang-rs order
+  cookware: RecipeCookware[]         // All cookware components in cooklang-rs order
+  timers: RecipeTimer[]              // All timer components in cooklang-rs order
   inlineQuantities: RecipeInlineQuantity[] // Inline temperature quantities (extensions: "all")
   errors: ParseError[]               // Parse errors
   warnings: ParseError[]             // Parse warnings (e.g. invalid YAML)
@@ -106,7 +106,7 @@ interface RecipeCookware {
 
 ## RecipeModifiers
 
-Cooklang components support single-character modifiers positioned immediately after the token marker, e.g. `@@name`, `@?name`.
+With `{ extensions: "all" }`, Cooklang components support single-character modifiers positioned immediately after the token marker, e.g. `@@name`, `@?name`.
 
 ```ts
 interface RecipeModifiers {
@@ -120,7 +120,7 @@ interface RecipeModifiers {
 
 ## IngredientRelation & ComponentRelation
 
-Cooklang keeps track of definitions and references (`&` modifier) so that you know where an ingredient first appeared. Definitions are mapped step-by-step from their initial occurrence to each subsequent re-use reference. 
+Cooklang keeps track of definitions and references (`&` modifier) so that you know where a component was defined and which later component entries refer to it. `referencedFrom` and `referencesTo` use indices in the corresponding top-level component array (`ingredients` or `cookware`), matching `cooklang-rs`.
 
 ```ts
 type ComponentRelation =

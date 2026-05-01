@@ -4,6 +4,8 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 
 ## Feature Support Matrix
 
+Alias and modifier rows reflect `{ extensions: "all" }`, which matches the default `cooklang-rs` parser.
+
 | Feature | Syntax | Supported | Example |
 |---------|--------|:---------:|---------|
 | **Ingredients** | | | |
@@ -17,8 +19,8 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 | Note suffix | `@name{qty%unit}(note)` | :white_check_mark: | `@flour{100%g}(sifted)` |
 | Note (no amount) | `@name(note)` | :white_check_mark: | `@butter(softened)` |
 | Alias syntax | `@display\|canonical{}` | :white_check_mark: | `@white wine\|wine{100%ml}` |
-| Modifier `@` (reference) | `@@name` | :white_check_mark: | `@@tomato sauce{200%ml}` |
-| Modifier `&` (hidden) | `@&name` | :white_check_mark: | `@&flour{300%g}` |
+| Modifier `@` (recipe reference) | `@@name` | :white_check_mark: | `@@tomato sauce{200%ml}` |
+| Modifier `&` (component reference) | `@&name` | :white_check_mark: | `@&flour{300%g}` |
 | Modifier `?` (optional) | `@?name` | :white_check_mark: | `@?garnish` |
 | Modifier `+` (added) | `@+name` | :white_check_mark: | `@+extra cheese{}` |
 | Modifier `-` (removed) | `@-name` | :white_check_mark: | `@-onion` |
@@ -62,4 +64,4 @@ Complete table of Cooklang syntax features supported by cooklang-parse.
 
 ## Spec Compliance
 
-cooklang-parse is verified against **57 canonical test cases** from the official [Cooklang spec](https://github.com/cooklang/spec), plus 17 extended test cases for non-canonical features, achieving exact parity with the [cooklang-rs](https://github.com/cooklang/cooklang-rs) reference implementation.
+cooklang-parse is verified against the official canonical fixture plus extended tests for default-parser behavior, achieving parity with the [cooklang-rs](https://github.com/cooklang/cooklang-rs) reference implementation.
