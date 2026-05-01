@@ -96,10 +96,9 @@ jobs:
             ${{ secrets.BWS_NPM_TOKEN_SECRET_ID }} > NPM_TOKEN
 
       - name: Configure npm authentication
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${{ steps.bws.outputs.NPM_TOKEN }}" > ~/.npmrc
+        run: echo "//registry.npmjs.org/:_authToken=${{ steps.bws.outputs.NPM_TOKEN }}" > ~/.npmrc
         timeout-minutes: 1
 
       - name: Publish to npm
-        run: bun publish --access public
+        run: npm publish --access public
         timeout-minutes: 5
