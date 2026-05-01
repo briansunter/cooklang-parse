@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/briansunter/cooklang-parse/compare/v1.2.1...v2.0.0) (2026-05-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* recipe.ingredients, recipe.cookware, and recipe.timers now contain every parsed component in document order rather than a deduplicated shopping list. Use each component's relation field to distinguish definitions from references.
+
+### Features
+
+* align top-level component arrays with cooklang-rs ([e1faa0c](https://github.com/briansunter/cooklang-parse/commit/e1faa0cca64295d5ed84445bc590759aeb2478ba))
+
 ## [1.2.1](https://github.com/briansunter/cooklang-parse/compare/v1.2.0...v1.2.1) (2026-03-14)
 
 
