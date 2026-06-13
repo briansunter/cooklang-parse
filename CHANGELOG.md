@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/briansunter/cooklang-parse/compare/v1.3.0...v1.4.0) (2026-06-13)
+
+
+### Features
+
+* align parser behavior with cooklang-rs reference ([e34998f](https://github.com/briansunter/cooklang-parse/commit/e34998fb551226899c5e104ed083cc5999fc5cc6))
+
 ## [1.3.0](https://github.com/briansunter/cooklang-parse/compare/v1.2.1...v1.3.0) (2026-05-01)
 
 
