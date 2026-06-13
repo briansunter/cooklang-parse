@@ -121,12 +121,13 @@ Add @flour{250%g}.
     ).toBe(true)
   })
 
-  test("timer without quantity is a parse error in all mode", () => {
+  test("timer without quantity is a fatal parse error in all mode", () => {
     const recipe = parseCooklang("Let it ~rest after plating\n", { extensions: "all" })
     expect(recipe.errors).toHaveLength(1)
     expect(recipe.errors[0]?.message).toContain("Invalid timer: missing quantity")
-    // The parser continues processing after the error — the step is still emitted
-    expect(getSteps(recipe)).toHaveLength(1)
+    // cooklang-rs discards all output on this error (recipe is None).
+    expect(getSteps(recipe)).toHaveLength(0)
+    expect(recipe.sections).toHaveLength(0)
   })
 
   test("advanced units parse quantity+unit without percent separator", () => {

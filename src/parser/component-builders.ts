@@ -44,6 +44,7 @@ export function buildCookware(
   mods: string,
   rawName: string,
   quantity: string | number,
+  units: string,
   note: string | undefined,
 ): RecipeCookware {
   const { name, alias } = splitNameAlias(rawName)
@@ -53,7 +54,7 @@ export function buildCookware(
     type: "cookware",
     name,
     quantity,
-    units: "",
+    units,
     modifiers,
     relation: { type: "definition", referencedFrom: [], definedInStep: true },
   }

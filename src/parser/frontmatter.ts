@@ -38,10 +38,6 @@ function splitLinesInclusive(source: string): Array<{ line: string; offset: numb
     lines.push({ line: source.slice(lineStart, offset), offset: lineStart })
   }
 
-  if (source.length === 0) {
-    return []
-  }
-
   return lines
 }
 

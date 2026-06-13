@@ -1,4 +1,5 @@
 import type { ParseError, RecipeInlineQuantity, RecipeStepItem, SourcePosition } from "../types"
+import { INLINE_QUANTITY_UNITS } from "./inline-units"
 import { parseWithOhm } from "./ohm-ast"
 import { parseQuantity } from "./quantity"
 import {
@@ -42,16 +43,15 @@ function isWhitespaceChar(ch: string): boolean {
   return ch === " " || ch === "\t" || ch === "\n" || ch === "\r"
 }
 
-function isTemperatureUnit(unit: string): boolean {
-  return /^(?:[CFK]|°C|°F|ºC|ºF|℃)$/u.test(unit)
-}
-
-function trimTrailingUnitPunctuation(rawUnit: string): { unit: string; punctuationLength: number } {
-  const trimmedUnit = rawUnit.replace(/[.,;:!?)]*$/u, "")
-  return {
-    unit: trimmedUnit,
-    punctuationLength: rawUnit.length - trimmedUnit.length,
-  }
+/**
+ * Extract inline quantities from text, mirroring cooklang-rs `find_inline_quantity`.
+ * Scans for a digit, takes the word, splits it into number/unit at the first
+ * non-numeric char (or takes the next word as the unit), and emits an inline
+ * quantity only when the unit is a known bundled unit. Matching is exact and
+ * case-sensitive; no trailing punctuation is trimmed (so "180C." is not a unit).
+ */
+function isKnownInlineUnit(unit: string): boolean {
+  return INLINE_QUANTITY_UNITS.has(unit)
 }
 
 function parseInlineQuantitiesInText(
@@ -116,9 +116,8 @@ function parseInlineQuantitiesInText(
     if (!rawNumber || !rawUnit) continue
 
     const parsedNumber = Number(rawNumber)
-    const { unit: parsedUnit, punctuationLength } = trimTrailingUnitPunctuation(rawUnit)
     if (!Number.isFinite(parsedNumber)) continue
-    if (!isTemperatureUnit(parsedUnit)) continue
+    if (!isKnownInlineUnit(rawUnit)) continue
 
     if (beforeEnd > cursor) {
       items.push(sliceTextItem(item, cursor, beforeEnd))
@@ -126,17 +125,17 @@ function parseInlineQuantitiesInText(
 
     inlineQuantities.push({
       quantity: negative ? -parsedNumber : parsedNumber,
-      units: parsedUnit,
+      units: rawUnit,
     })
     const position = getStepItemPosition(item)
     items.push(
       attachSourceInfo(
         { type: "inline_quantity", index: inlineQuantities.length - 1 },
-        text.slice(negative ? beforeEnd : word1Start, i - punctuationLength),
+        text.slice(negative ? beforeEnd : word1Start, i),
         position ? offsetPosition(position, negative ? beforeEnd : word1Start) : undefined,
       ),
     )
-    cursor = i - punctuationLength
+    cursor = i
   }
 
   if (cursor < text.length) {
@@ -244,7 +243,10 @@ function parseSpacedMarkersInText(item: TextStepItem): RecipeStepItem[] {
           }
 
           if (tokenEnd !== -1) {
-            normalized = `${marker}${text.slice(contentStart, tokenEnd)}`
+            // Collapse whitespace between the name and the opening brace so a
+            // spaced marker like "@ flour {2%g}" normalizes to "@flour{2%g}".
+            const namePart = text.slice(contentStart, openBrace).replace(/\s+$/u, "")
+            normalized = `${marker}${namePart}${text.slice(openBrace, tokenEnd)}`
           }
         }
       }

@@ -50,12 +50,9 @@ semantics.addOperation("toAST", {
     return { frontmatter: null, items: orderedItems }
   },
 
-  Section_double(_eq1, name, _eq2) {
-    return { type: "section", name: name.sourceString.trim() }
-  },
-
-  Section_single(_eq, name) {
-    return { type: "section", name: name.sourceString.trim() }
+  Section(_eqOpen, name, _eqClose, _hspace, _end) {
+    const trimmed = name.sourceString.trim()
+    return { type: "section", name: trimmed === "" ? null : trimmed }
   },
 
   Step(lines) {
@@ -137,33 +134,44 @@ semantics.addOperation("toAST", {
   Cookware_multi(_hash, _mods, firstWord, _spacesIter, moreWordsIter, amount, noteOpt) {
     const rawName = [firstWord, ...moreWordsIter.children].map(w => w.sourceString).join(" ")
     const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
+    const amt = amount.toAST()
     const pos = this.source.getLineAndColumn()
     return attachSourceInfo(
-      buildCookware(_mods.sourceString, rawName, amount.toAST().quantity, note),
+      buildCookware(_mods.sourceString, rawName, amt.quantity, amt.units, note),
       this.sourceString,
       { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
   Cookware_single(_hash, _mods, word, amountOpt, noteOpt) {
-    const qty = amountOpt.numChildren > 0 ? amountOpt.child(0).toAST().quantity : 1
+    const amt = amountOpt.numChildren > 0 ? amountOpt.child(0).toAST() : { quantity: 1, units: "" }
     const note: string | undefined = noteOpt.numChildren > 0 ? noteOpt.child(0).toAST() : undefined
     const pos = this.source.getLineAndColumn()
     return attachSourceInfo(
-      buildCookware(_mods.sourceString, word.sourceString, qty, note),
+      buildCookware(_mods.sourceString, word.sourceString, amt.quantity, amt.units, note),
       this.sourceString,
       { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
     )
   },
 
-  cookwareAmount_empty(_open, _hspace, _close) {
-    return { quantity: 1 }
+  cookwareAmount_withUnit(_open, fixedOpt, qty, _pct, unit, _close) {
+    return {
+      quantity: parseQuantity(qty.sourceString.trim()),
+      units: unit.sourceString.trim(),
+      fixed: fixedOpt.numChildren > 0,
+    }
   },
 
-  cookwareAmount_withQuantity(_open, qty, _close) {
-    const raw = qty.sourceString.trim()
-    const n = Number(raw)
-    return { quantity: Number.isNaN(n) ? raw : n }
+  cookwareAmount_quantityOnly(_open, fixedOpt, qty, _close) {
+    return {
+      quantity: parseQuantity(qty.sourceString.trim()),
+      units: "",
+      fixed: fixedOpt.numChildren > 0,
+    }
+  },
+
+  cookwareAmount_empty(_open, _hspace1, fixedOpt, _hspace2, _close) {
+    return { quantity: 1, units: "", fixed: fixedOpt.numChildren > 0 }
   },
 
   cookwareNote(_open, content, _close) {
@@ -198,6 +206,29 @@ semantics.addOperation("toAST", {
     )
   },
 
+  Timer_empty(_tilde, nameOpt, _open, _hspace, _close) {
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo(
+      {
+        type: "timer",
+        name: nameOpt.numChildren > 0 ? nameOpt.child(0).sourceString : "",
+        quantity: "",
+        units: "",
+      },
+      this.sourceString,
+      { line: pos.lineNum, column: pos.colNum, offset: pos.offset },
+    )
+  },
+
+  markerChar(_ch) {
+    const pos = this.source.getLineAndColumn()
+    return attachSourceInfo({ type: "text", value: this.sourceString }, this.sourceString, {
+      line: pos.lineNum,
+      column: pos.colNum,
+      offset: pos.offset,
+    })
+  },
+
   Timer_word(_tilde, name) {
     const pos = this.source.getLineAndColumn()
     return attachSourceInfo(
@@ -212,8 +243,25 @@ semantics.addOperation("toAST", {
     )
   },
 
-  Note(_gt, noteContents, _newline) {
-    return { type: "note", text: noteContents.sourceString.trim() }
+  Note(first, conts) {
+    const parts = [first.toAST(), ...conts.children.map(c => c.toAST())].filter(t => t !== "")
+    return { type: "note", text: parts.join(" ") }
+  },
+
+  NoteLine(_gt, _hspace, textOpt, _newline) {
+    return textOpt.numChildren > 0 ? textOpt.child(0).sourceString.trim() : ""
+  },
+
+  NoteContLine(body, _newline) {
+    return body.toAST()
+  },
+
+  NoteContBody_marked(_gt, _hspace, textOpt) {
+    return textOpt.numChildren > 0 ? textOpt.child(0).sourceString.trim() : ""
+  },
+
+  NoteContBody_plain(text) {
+    return text.sourceString.trim()
   },
 
   MetadataDirective(_hspace, _arrows, body, _newline) {

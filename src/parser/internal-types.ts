@@ -18,7 +18,7 @@ export interface DirectiveNode {
 
 export type SemanticItem =
   | { kind: "step"; items: RecipeStepItem[] }
-  | { kind: "section"; name: string }
+  | { kind: "section"; name: string | null }
   | { kind: "note"; text: string }
   | { kind: "directive"; directive: DirectiveNode }
 

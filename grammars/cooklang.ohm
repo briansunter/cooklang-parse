@@ -12,31 +12,34 @@ Cooklang {
   RecipeItem
     = Section | MetadataDirective | Note | CommentLine | blankLine | spaceOnly | Step
 
-  // Named section ==Name==
+  // Named section: one or more leading '=', a name (no '='), optional trailing
+  // '=' run, then only whitespace/comments until end of line. Matches
+  // cooklang-rs `section = Eq+ (section_name Eq*)` where the line must end.
   Section
-    = "==" sectionName "=="      -- double
-    | "=" sectionName            -- single
+    = "="+ sectionName "="* hspace* &(newline | end)
 
   sectionName
-    = (~"==" ~newline any)+
+    = (~"=" ~newline any)*
 
   // Recipe step - paragraphs separated by blank lines
   Step
     = StepLine+
 
   StepLine
-    = ~(hspace* "-- ") ~(hspace* newline) ~sectionStart ~MetadataDirective StepItem+ InlineComment? "\n"?
+    = ~(hspace* "--") ~(hspace* newline) ~Section ~MetadataDirective StepItem+ InlineComment? "\n"?
 
-  sectionStart
-    = "==" | "=" ~"="
-
-  // Items that can appear in a step
+  // Items that can appear in a step. markerChar is a recovery fallback: a
+  // component marker (@ # ~) that did not form a valid component is emitted as
+  // literal text, mirroring cooklang-rs which backtracks and treats it as text.
   StepItem
-    = Ingredient | Cookware | Timer | Text
+    = Ingredient | Cookware | Timer | Text | markerChar
+
+  markerChar
+    = "@" | "#" | "~"
 
   // Text without special Cooklang syntax
   Text
-    = (~("\n" | "\r\n" | "\r" | "@" &ingredientStartChar | "#" &cookwareStartChar | "~" &wordChar | "~" &"{" | "-- ") any)+
+    = (~("\n" | "\r\n" | "\r" | "@" &ingredientStartChar | "#" &cookwareStartChar | "~" &wordChar | "~" &"{" | "--") any)+
 
   ingredientStartChar
     = wordChar | "@" | "&" | "?" | "+" | "-"
@@ -77,17 +80,18 @@ Cooklang {
   cookwareWord
     = componentWordChar+
 
+  // Cookware amounts use the same quantity/unit parsing as ingredients
+  // (cooklang-rs runs the same parse_quantity for all components).
   cookwareAmount
-    = "{" hspace* "}"           -- empty
-    | "{" cookwareQuantity "}"  -- withQuantity
-
-  cookwareQuantity
-    = (~"}" any)+
+    = "{" amountFixed? amountQuantity "%" amountUnit "}"  -- withUnit
+    | "{" hspace* amountFixed? hspace* "}"                -- empty
+    | "{" amountFixed? amountQuantity "}"                  -- quantityOnly
 
   // Timer: ~{quantity%unit} or ~name{quantity%unit}
   Timer
     = "~" timerName? "{" amountQuantity "%" amountUnit "}"  -- withUnit
     | "~" timerName? "{" amountQuantity "}"                  -- quantityOnly
+    | "~" timerName? "{" hspace* "}"                          -- empty
     | "~" timerName                                           -- word
 
   timerName
@@ -101,11 +105,26 @@ Cooklang {
     = (~"%" ~"}" any)+
 
   amountUnit
-    = (~"}" any)+
+    = (~"}" any)*
 
-  // Note lines (start with >)
+  // Text block (starts with >). Like cooklang-rs, a text block continues
+  // consuming following non-blank lines (until a blank line, section, or
+  // metadata directive) and treats them all as literal text — components inside
+  // a text block are not parsed.
   Note
-    = ">" noteText Newline?
+    = NoteLine NoteContLine*
+
+  // A leading ">>" is a metadata directive, never a text block. When it is not
+  // a valid directive (no colon) it falls through to a step, matching cooklang-rs.
+  NoteLine
+    = ">" ~">" hspace* noteText? Newline?
+
+  NoteContLine
+    = ~blankLine ~Section ~MetadataDirective NoteContBody Newline?
+
+  NoteContBody
+    = ">" hspace* noteText?  -- marked
+    | noteText               -- plain
 
   noteText
     = (~"\n" ~"\r" any)+
@@ -123,9 +142,9 @@ Cooklang {
   directiveValue
     = (~newline any)*
 
-  // Inline comment: -- comment
+  // Inline comment: -- comment (no space required, matching cooklang-rs lexer)
   InlineComment
-    = "-- " (~Newline any)*
+    = "--" (~Newline any)*
 
   // Full-line comments
   CommentLine

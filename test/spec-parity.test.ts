@@ -155,7 +155,8 @@ test("spec parity: canonical format for fixed quantity", () => {
   ])
 })
 
-test("spec parity: comment requires space after dashes", () => {
+test("spec parity: -- starts a line comment without requiring a space", () => {
+  // cooklang-rs lexes `--` as a line comment anywhere, even mid-word.
   const source = `text--more text\n`
 
   const recipe = parseCooklang(source)
@@ -165,7 +166,7 @@ test("spec parity: comment requires space after dashes", () => {
     ?.filter(i => i.type === "text")
     .map(i => (i.type === "text" ? i.value : ""))
     .join("")
-  expect(textContent).toContain("text--more text")
+  expect(textContent).toBe("text")
 })
 
 test("spec parity: invalid YAML frontmatter becomes warning and is ignored", () => {

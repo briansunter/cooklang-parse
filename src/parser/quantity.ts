@@ -22,6 +22,9 @@ export function parseQuantity(raw: string): string | number {
     if (+frac[2] !== 0) return +frac[1] / +frac[2]
   }
 
+  // A leading-zero integer like "01" is a ZeroInt in cooklang-rs and stays text.
+  if (/^0\d/.test(qty)) return qty
+
   const num = Number(qty)
   return Number.isNaN(num) ? qty : num
 }

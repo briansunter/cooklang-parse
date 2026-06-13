@@ -851,7 +851,9 @@ test("canonical mode treats extension modifiers like cooklang-rs Extensions::emp
 })
 
 test("grammar parse error returns error", () => {
-  const recipe = parseCooklang("=")
+  // `~{}` (timer with neither quantity nor name) is a fatal error that discards
+  // all output, matching cooklang-rs. (A bare `=` is a valid empty section.)
+  const recipe = parseCooklang("~{}")
 
   expect(recipe.errors).toHaveLength(1)
   expect(recipe.errors[0]?.severity).toBe("error")
@@ -937,7 +939,7 @@ test("multi-word amount without percent stays as quantity string", () => {
 // --- Error handling tests ---
 
 test("parse error uses shortMessage without verbose formatting", () => {
-  const recipe = parseCooklang("=")
+  const recipe = parseCooklang("~{}")
 
   expect(recipe.errors).toHaveLength(1)
   const err = recipe.errors[0]
@@ -954,7 +956,7 @@ test("parse error uses shortMessage without verbose formatting", () => {
 test("parse error offset is correct with directives", () => {
   const source = `>> title: Pancakes
 >> servings: 4
-=`
+~{}`
 
   const recipe = parseCooklang(source)
 
@@ -962,8 +964,8 @@ test("parse error offset is correct with directives", () => {
   const err = recipe.errors[0]
   expect(err).toBeDefined()
   expect(err?.severity).toBe("error")
-  // Offset should point into the original source near the `=` (not 0 or 2)
-  expect(err?.position.offset).toBeGreaterThanOrEqual(source.lastIndexOf("="))
+  // Offset should point into the original source near the `~{}` (not 0 or 2)
+  expect(err?.position.offset).toBeGreaterThanOrEqual(source.lastIndexOf("~"))
   expect(err?.position.offset).toBeLessThanOrEqual(source.length)
 })
 
@@ -1018,7 +1020,7 @@ Mix @flour{250%g}.
 test("parse error reports correct line number on later lines", () => {
   const source = `Mix @flour{250%g}.
 Add @eggs{3}.
-=`
+~{}`
   const recipe = parseCooklang(source)
 
   expect(recipe.errors).toHaveLength(1)
@@ -1087,13 +1089,15 @@ Add @flour{}
 
   const recipe = parseCooklang(source)
 
+  // A lone `---` is not frontmatter (needs a closing fence); cooklang-rs lexes
+  // `--` as a line comment, so the `---` line is dropped entirely.
   expect(recipe.metadata).toEqual({})
   expect(recipe.ingredients.map(i => i.name)).toEqual(["flour"])
   const text = getSteps(recipe)[0]
     ?.filter(i => i.type === "text")
     .map(i => (i.type === "text" ? i.value : ""))
     .join("")
-  expect(text).toBe("--- Add ")
+  expect(text).toBe("Add ")
 })
 
 test("note text preserves literal block comment syntax", () => {
@@ -1105,16 +1109,27 @@ test("note text preserves literal block comment syntax", () => {
   expect(getNotes(recipe)).toEqual(["Keep [- this -] text"])
 })
 
-test("inline quantity extraction only recognizes temperature units", () => {
+test("inline quantity extraction recognizes bundled units, not bare numbers", () => {
+  // "people"/"error" are not units; "C." has trailing punctuation so it is not a
+  // unit (cooklang-rs does not trim punctuation off inline units).
   const recipe = parseCooklang("Serve 2 people. HTTP 404 error. Bake at 180 C.\n", {
     extensions: "all",
   })
 
+  expect(recipe.inlineQuantities).toEqual([])
+  expect(getSteps(recipe)[0]).toEqual([
+    { type: "text", value: "Serve 2 people. HTTP 404 error. Bake at 180 C." },
+  ])
+})
+
+test("inline quantity extraction matches a clean bundled unit", () => {
+  const recipe = parseCooklang("Bake at 180 C now\n", { extensions: "all" })
+
   expect(recipe.inlineQuantities).toEqual([{ quantity: 180, units: "C" }])
   expect(getSteps(recipe)[0]).toEqual([
-    { type: "text", value: "Serve 2 people. HTTP 404 error. Bake at " },
+    { type: "text", value: "Bake at " },
     { type: "inline_quantity", index: 0 },
-    { type: "text", value: "." },
+    { type: "text", value: " now" },
   ])
 })
 
@@ -1202,13 +1217,13 @@ test("text mode preserves original raw tokens after advanced unit parsing", () =
 
 test("parse errors keep original offsets after block comments", () => {
   const source = `[- comment -]
-=`
+~{}`
   const recipe = parseCooklang(source)
 
   expect(recipe.errors).toHaveLength(1)
-  expect(recipe.errors[0]?.position.offset).toBe(source.length)
+  expect(recipe.errors[0]?.position.offset).toBe(source.indexOf("~"))
   expect(recipe.errors[0]?.position.line).toBe(2)
-  expect(recipe.errors[0]?.position.column).toBe(2)
+  expect(recipe.errors[0]?.position.column).toBe(1)
 })
 
 test("cookware quantity parses numeric value", () => {

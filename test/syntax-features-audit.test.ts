@@ -366,13 +366,13 @@ describe("Syntax Features Audit (docs/guide/syntax-features.md)", () => {
       expect(text).toContain("#")
     })
 
-    it("-- without space: not a comment", () => {
+    it("-- starts a comment without a space (matching cooklang-rs)", () => {
       const r = noErrors("well--done steak")
       const text = at(getSteps(r), 0)
         .filter(i => i.type === "text")
         .map(i => i.value)
         .join(" ")
-      expect(text).toContain("well--done")
+      expect(text).toBe("well")
     })
 
     it("Unicode text: accented, Cyrillic, emoji", () => {

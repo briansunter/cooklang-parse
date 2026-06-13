@@ -70,6 +70,9 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
 
   const warnings: ParseError[] = []
   const errors: ParseError[] = []
+  // Parse-stage fatal errors (e.g. timers without a duration). When present,
+  // cooklang-rs discards all output and keeps only these errors.
+  const fatalErrors: ParseError[] = []
 
   if (yaml?.warning) {
     warnings.push({
@@ -137,7 +140,7 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
         continue
       }
 
-      metadata[dir.key] = dir.rawValue || ""
+      metadata[dir.key] = dir.rawValue
       usedMetadataDirectives.push(dir)
       continue
     }
@@ -167,18 +170,25 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     stepItems = mergeConsecutiveTexts(stepItems)
     stepItems = splitInvalidMarkerTextItems(stepItems)
 
-    if (allExtensions) {
-      const invalidTimer = stepItems.find(
-        stepItem => stepItem.type === "timer" && stepItem.quantity === "" && stepItem.units === "",
-      )
-      if (invalidTimer) {
-        errors.push({
+    // Timers with no quantity are fatal in cooklang-rs and discard all output.
+    // Extended mode (TIMER_REQUIRES_TIME) rejects any timer without a duration;
+    // canonical only rejects timers that also have no name.
+    for (const stepItem of stepItems) {
+      if (stepItem.type !== "timer" || stepItem.quantity !== "") continue
+      if (allExtensions) {
+        fatalErrors.push({
           message: "Invalid timer: missing quantity",
           shortMessage: "Invalid timer: missing quantity",
-          position: getStepItemPosition(invalidTimer) ?? DEFAULT_POSITION,
+          position: getStepItemPosition(stepItem) ?? DEFAULT_POSITION,
           severity: "error",
         })
-        // Continue processing — don't abort the entire recipe
+      } else if (stepItem.name === "") {
+        fatalErrors.push({
+          message: "Invalid timer: neither quantity nor name",
+          shortMessage: "Invalid timer: neither quantity nor name",
+          position: getStepItemPosition(stepItem) ?? DEFAULT_POSITION,
+          severity: "error",
+        })
       }
     }
 
@@ -240,6 +250,10 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     })
   }
 
+  if (fatalErrors.length > 0) {
+    return emptyRecipe(fatalErrors)
+  }
+
   checkStandardMetadata(metadata, warnings, usedMetadataDirectives)
 
   const deprecatedWarning = createDeprecatedMetadataWarning(usedMetadataDirectives)
@@ -290,21 +304,33 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
     }
   }
 
-  for (const step of componentSteps) {
-    for (const item of step.items) {
-      if (item.type === "ingredient") {
-        const nameKey = item.name.toLowerCase()
-        const previousDefinition = ingredientLastDefinitionByName.get(nameKey)
-        const isExplicitReference = item.modifiers.reference === true
-        const isImplicitStepsReference = step.defineMode === "steps" && !item.modifiers.new
+  // Collect every component of one type in document order, resolving each to a
+  // definition or a reference to the last same-named definition (matching
+  // cooklang-rs reference resolution). Ingredients and cookware differ only in
+  // how a reference relation is recorded, so that is delegated to `link`.
+  function collectComponents<T extends RecipeIngredient | RecipeCookware>(
+    type: T["type"],
+    target: T[],
+    lastDefinitionByName: Map<string, number>,
+    link: (item: T, referencesTo: number) => void,
+  ): void {
+    for (const step of componentSteps) {
+      for (const item of step.items) {
+        if (item.type !== type) continue
+        const comp = item as T
+
+        const nameKey = comp.name.toLowerCase()
+        const previousDefinition = lastDefinitionByName.get(nameKey)
+        const isExplicitReference = comp.modifiers.reference === true
+        const isImplicitStepsReference = step.defineMode === "steps" && !comp.modifiers.new
         const isImplicitDuplicateReference =
           step.duplicateMode === "reference" &&
-          !item.modifiers.new &&
+          !comp.modifiers.new &&
           previousDefinition !== undefined
         const shouldReference =
           isExplicitReference || isImplicitStepsReference || isImplicitDuplicateReference
 
-        item.relation = {
+        comp.relation = {
           type: "definition",
           referencedFrom: [],
           definedInStep: step.definedInStep,
@@ -312,51 +338,28 @@ export function parseCooklang(source: string, options: ParseCooklangOptions = {}
 
         if (shouldReference) {
           if (previousDefinition !== undefined) {
-            linkIngredientReference(item, previousDefinition)
+            link(comp, previousDefinition)
           } else if (isExplicitReference || isImplicitStepsReference) {
-            errors.push(referenceNotFoundError(item))
+            errors.push(referenceNotFoundError(comp))
           }
         }
 
-        const itemIndex = ingredients.length
-        ingredients.push(item)
-        if (item.modifiers.reference !== true) {
-          ingredientLastDefinitionByName.set(nameKey, itemIndex)
-        }
-      } else if (item.type === "cookware") {
-        const nameKey = item.name.toLowerCase()
-        const previousDefinition = cookwareLastDefinitionByName.get(nameKey)
-        const isExplicitReference = item.modifiers.reference === true
-        const isImplicitStepsReference = step.defineMode === "steps" && !item.modifiers.new
-        const isImplicitDuplicateReference =
-          step.duplicateMode === "reference" &&
-          !item.modifiers.new &&
-          previousDefinition !== undefined
-        const shouldReference =
-          isExplicitReference || isImplicitStepsReference || isImplicitDuplicateReference
-
-        item.relation = {
-          type: "definition",
-          referencedFrom: [],
-          definedInStep: step.definedInStep,
-        }
-
-        if (shouldReference) {
-          if (previousDefinition !== undefined) {
-            linkCookwareReference(item, previousDefinition)
-          } else if (isExplicitReference || isImplicitStepsReference) {
-            errors.push(referenceNotFoundError(item))
-          }
-        }
-
-        const itemIndex = cookware.length
-        cookware.push(item)
-        if (item.modifiers.reference !== true) {
-          cookwareLastDefinitionByName.set(nameKey, itemIndex)
+        const itemIndex = target.length
+        target.push(comp)
+        if (comp.modifiers.reference !== true) {
+          lastDefinitionByName.set(nameKey, itemIndex)
         }
       }
     }
   }
+
+  collectComponents(
+    "ingredient",
+    ingredients,
+    ingredientLastDefinitionByName,
+    linkIngredientReference,
+  )
+  collectComponents("cookware", cookware, cookwareLastDefinitionByName, linkCookwareReference)
 
   return {
     metadata,

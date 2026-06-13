@@ -65,7 +65,7 @@ function isSectionLine(line: string): boolean {
 }
 
 function shouldPreserveLine(line: string): boolean {
-  return line.startsWith(">") || isSectionLine(line) || /^\s*>>/.test(line) || /^\s*-- /.test(line)
+  return line.startsWith(">") || isSectionLine(line) || /^\s*>>/.test(line) || /^\s*--/.test(line)
 }
 
 /**
@@ -106,8 +106,19 @@ export function stripBlockComments(source: string): {
     }
 
     const processed = processRecipeLine(line, lineStart, inBlockComment, commentRanges)
-    output += processed.line + newline
+    output += processed.line
     inBlockComment = processed.inBlockComment
+
+    if (newline && inBlockComment) {
+      // The block comment continues across this newline. Blank the newline out
+      // (preserving length) so the comment does not split the step into two
+      // lines and leave a stray soft-break space, matching cooklang-rs which
+      // consumes the newline inside the comment token.
+      output += " ".repeat(newline.length)
+      commentRanges.push({ start: idx - newline.length, end: idx })
+    } else {
+      output += newline
+    }
   }
 
   return { source: output, commentRanges }
